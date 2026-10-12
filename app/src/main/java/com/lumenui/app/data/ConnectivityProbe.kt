@@ -1,6 +1,11 @@
 package com.lumenui.app.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -31,8 +36,13 @@ data class ProbeResult(
     val region: String? = null,
     val colo: String? = null,
     val ip: String? = null,
-    val isWarp: Boolean = false
+    val isWarp: Boolean = false,
+    /** Consecutive request timings in ms; a negative value marks a failed sample. */
+    val samples: List<Long> = emptyList()
 )
+
+/** Latency samples shown per card (one dot each). */
+const val LATENCY_SAMPLE_COUNT = 8
 
 /**
  * Region-unlock checks, modelled on Bettbox's media-unlock checker.
@@ -146,11 +156,78 @@ class ConnectivityProbe(base: OkHttpClient) {
         .followRedirects(false)
         .build()
 
-    suspend fun probe(target: ProbeTarget): ProbeResult = withContext(Dispatchers.IO) {
+    /** Short-timeout client for the repeated latency samples (it only needs the headers). */
+    private val sampleClient: OkHttpClient = base.newBuilder()
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
+        .callTimeout(6, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .build()
+
+    suspend fun probe(
+        target: ProbeTarget,
+        onSample: ((Long) -> Unit)? = null
+    ): ProbeResult = withContext(Dispatchers.IO) {
         val start = System.currentTimeMillis()
-        runCatching { check(target, start) }.getOrElse {
+        val result = runCatching { check(target, start) }.getOrElse {
             ProbeResult(target.name, target.category, ProbeStatus.FAILED, System.currentTimeMillis() - start)
         }
+        // A failed probe can't be sampled without waiting out a timeout per sample, so skip it.
+        if (result.status == ProbeStatus.FAILED) result
+        else result.copy(samples = sampleLatency(target, LATENCY_SAMPLE_COUNT, onSample))
+    }
+
+    /**
+     * Times [count] requests to the target's representative URL, so the card can show latency
+     * as a row of samples rather than a single number. A request that does not return a 2xx/3xx
+     * is recorded as -1 so it renders as a failed dot.
+     *
+     * A few run at a time rather than strictly one after another: a host that is slow or
+     * unreachable would otherwise cost one timeout per sample (8 timeouts ≈ 48s), which made
+     * the whole test take minutes. Concurrency is capped so the samples still measure roughly
+     * one-at-a-time latency.
+     */
+    private suspend fun sampleLatency(
+        target: ProbeTarget,
+        count: Int,
+        onSample: ((Long) -> Unit)? = null
+    ): List<Long> = coroutineScope {
+        val url = sampleUrl(target) ?: return@coroutineScope emptyList()
+        val request = request(url).get().build()
+        val gate = Semaphore(SAMPLE_CONCURRENCY)
+        val deferred = (0 until count).map {
+            async(Dispatchers.IO) {
+                gate.withPermit {
+                    val start = System.currentTimeMillis()
+                    val ok = runCatching {
+                        sampleClient.newCall(request).execute().use { res -> res.code in 200..399 }
+                    }.getOrDefault(false)
+                    if (ok) System.currentTimeMillis() - start else -1L
+                }
+            }
+        }
+        // Report in sample order (not completion order) so the card fills its dots left to right.
+        val out = ArrayList<Long>(count)
+        deferred.forEach { sample ->
+            val ms = sample.await()
+            out.add(ms)
+            onSample?.let { cb -> withContext(Dispatchers.Main) { cb(ms) } }
+        }
+        out
+    }
+
+    /** URL used for the repeated latency samples: the same endpoint the probe checks, or its home. */
+    private fun sampleUrl(target: ProbeTarget): String? = when (target.kind) {
+        ProbeKind.TRACE -> "https://${target.domain}/cdn-cgi/trace"
+        ProbeKind.SIMPLE -> target.url.ifEmpty { "https://${target.domain}/" }
+        ProbeKind.NETFLIX -> "https://www.netflix.com/title/70143836"
+        ProbeKind.DISNEY -> "https://www.disneyplus.com/"
+        ProbeKind.YOUTUBE -> "https://www.youtube.com/premium"
+        ProbeKind.SPOTIFY -> "https://www.spotify.com/signup"
+        ProbeKind.GEMINI -> "https://gemini.google.com/"
+        ProbeKind.GITHUB -> "https://github.com/"
+        ProbeKind.REDDIT -> "https://www.reddit.com/"
+        ProbeKind.TIKTOK -> "https://perfops1.byteperf.com/500b-bench.jpg"
     }
 
     private fun check(target: ProbeTarget, start: Long): ProbeResult = when (target.kind) {
@@ -436,6 +513,9 @@ class ConnectivityProbe(base: OkHttpClient) {
     }
 
     private companion object {
+        /** How many latency samples run at once. */
+        const val SAMPLE_CONCURRENCY = 4
+
         const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 

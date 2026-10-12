@@ -50,6 +50,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.lumenui.app.ui.theme.LocalGlassColors
+import com.lumenui.app.ui.theme.SystemBarAppearance
 import com.lumenui.app.ui.theme.glassSurface
 import com.lumenui.app.ui.theme.rememberFrostNoise
 import kotlinx.coroutines.delay
@@ -279,6 +280,8 @@ fun GlassDialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        // The dialog is its own window, so its system bars have to be driven from in here.
+        SystemBarAppearance()
         LaunchedEffect(activity) {
             val window = activity?.window ?: return@LaunchedEffect
             val decor = window.decorView

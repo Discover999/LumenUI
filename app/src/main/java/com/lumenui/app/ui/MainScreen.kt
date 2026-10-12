@@ -14,6 +14,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +66,7 @@ fun MainScreen() {
     val probe by viewModel.probe.collectAsStateWithLifecycle()
 
     val controller = remember { PanelController() }
+    val scope = rememberCoroutineScope()
     DisposableEffect(controller) {
         controller.onPanelBackends = { viewModel.syncFromPanel(it) }
         onDispose { controller.onPanelBackends = null }
@@ -77,9 +79,11 @@ fun MainScreen() {
     var connectivityRunning by remember { mutableStateOf(false) }
     var connectivityResults by remember { mutableStateOf<Map<String, ProbeResult>>(emptyMap()) }
     var reputationByIp by remember { mutableStateOf<Map<String, IpReputation>>(emptyMap()) }
+    var samplesByTarget by remember { mutableStateOf<Map<String, List<Long>>>(emptyMap()) }
     var connectivityRunId by remember { mutableStateOf(0) }
     var selectedProbes by remember { mutableStateOf(app.container.settings.connectivityTargets) }
     var showProbeSettings by remember { mutableStateOf(false) }
+    var retrying by remember { mutableStateOf<Set<String>>(emptySet()) }
     var editing by remember { mutableStateOf<Backend?>(null) }
 
     LaunchedEffect(showConnectivity, connectivityRunId) {
@@ -88,6 +92,7 @@ fun MainScreen() {
         connectivityRunning = true
         connectivityResults = emptyMap()
         reputationByIp = emptyMap()
+        samplesByTarget = emptyMap()
         // Reputation is looked up once per distinct egress IP, kicked off the moment a
         // probe yields an IP (not after all probes) so it overlaps the remaining work.
         // Everything here runs on the composition's Main dispatcher, so the plain set
@@ -99,7 +104,10 @@ fun MainScreen() {
             targets.forEach { target ->
                 launch {
                     gate.withPermit {
-                        val result = app.container.connectivity.probe(target)
+                        val result = app.container.connectivity.probe(target) { ms ->
+                            samplesByTarget = samplesByTarget +
+                                (target.name to (samplesByTarget[target.name].orEmpty() + ms))
+                        }
                         connectivityResults = connectivityResults + (target.name to result)
                         result.ip?.let { ip ->
                             if (started.add(ip)) {
@@ -240,11 +248,31 @@ fun MainScreen() {
             ConnectivityScreen(
                 targets = ConnectivityTargets.all.filter { it.name in selectedProbes },
                 running = connectivityRunning,
+                retrying = retrying,
                 results = connectivityResults,
+                samples = samplesByTarget,
                 reputation = reputationByIp,
                 onBack = { showConnectivity = false },
                 onRerun = { connectivityRunId++ },
-                onSettings = { showProbeSettings = true }
+                onSettings = { showProbeSettings = true },
+                onRetry = { target ->
+                    retrying = retrying + target.name
+                    samplesByTarget = samplesByTarget - target.name
+                    scope.launch {
+                        val result = app.container.connectivity.probe(target) { ms ->
+                            samplesByTarget = samplesByTarget +
+                                (target.name to (samplesByTarget[target.name].orEmpty() + ms))
+                        }
+                        connectivityResults = connectivityResults + (target.name to result)
+                        result.ip?.let { ip ->
+                            if (ip !in reputationByIp) {
+                                val rep = app.container.ipReputation.lookup(ip)
+                                if (rep != null) reputationByIp = reputationByIp + (ip to rep)
+                            }
+                        }
+                        retrying = retrying - target.name
+                    }
+                }
             )
         }
 

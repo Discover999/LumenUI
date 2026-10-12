@@ -1,24 +1,23 @@
 package com.lumenui.app.ui.components
 
 import androidx.annotation.DrawableRes
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,35 +25,32 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.windowInsetsTopHeight
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextMeasurer
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.Apple
@@ -63,6 +59,9 @@ import com.composables.icons.lucide.BookOpen
 import com.composables.icons.lucide.Bot
 import com.composables.icons.lucide.Boxes
 import com.composables.icons.lucide.Castle
+import com.composables.icons.lucide.CircleAlert
+import com.composables.icons.lucide.CircleCheck
+import com.composables.icons.lucide.CircleX
 import com.composables.icons.lucide.Cloud
 import com.composables.icons.lucide.Compass
 import com.composables.icons.lucide.CreditCard
@@ -103,12 +102,15 @@ import com.composables.icons.lucide.Waves
 import com.composables.icons.lucide.Youtube
 import com.composables.icons.lucide.Zap
 import com.lumenui.app.R
-import com.lumenui.app.data.ConnectivityTargets
 import com.lumenui.app.data.IpReputation
+import com.lumenui.app.data.LATENCY_SAMPLE_COUNT
 import com.lumenui.app.data.ProbeResult
 import com.lumenui.app.data.ProbeStatus
 import com.lumenui.app.data.ProbeTarget
 import com.lumenui.app.ui.theme.LocalGlassColors
+import com.lumenui.app.ui.theme.SystemBarAppearance
+import com.lumenui.app.ui.theme.glassSurface
+import com.lumenui.app.ui.theme.rememberFrostNoise
 import compose.icons.SimpleIcons
 import compose.icons.simpleicons.Apple
 import compose.icons.simpleicons.Baidu
@@ -144,53 +146,58 @@ private val RestrictedColor = Color(0xFFE5B567)
 private val FailedColor = Color(0xFFE0685F)
 private val MutedColor = Color(0xFF9BA9BE)
 
-/** Shown in place of the region/latency when a probe could not be reached at all. */
-private const val FailedProbeLabel = "连接失败"
+/** Status-row height, in sp so it scales with the font scale like the text it holds. */
+private val StatusRowHeight = 22.sp
+
+/** Egress-IP row height, in sp. Together with [StatusRowHeight] it fixes the status+IP region. */
+private val IpRowHeight = 15.sp
+
+/** Vertical gap between the rows inside a card. */
+private val RowGap = 4.dp
+
+/** Diameter of one latency-sample dot. */
+private val SampleDotSize = 6.dp
 
 /**
- * Full-screen connectivity / region-unlock page. Nothing runs until the user starts it;
- * each result then lands on its own row.
+ * Full-screen connectivity / region-unlock page, laid out as a two-column card grid.
+ * Nothing runs until the user starts it; each result then lands on its own card.
  */
 @Composable
 fun ConnectivityScreen(
     targets: List<ProbeTarget>,
     running: Boolean,
+    retrying: Set<String>,
     results: Map<String, ProbeResult>,
+    samples: Map<String, List<Long>>,
     reputation: Map<String, IpReputation>,
     onBack: () -> Unit,
     onRerun: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onRetry: (ProbeTarget) -> Unit
 ) {
+    // A dialog is its own window: drive its system bars from here so the status-bar icons
+    // keep following the theme (the activity-level call does not reach this window).
+    SystemBarAppearance()
     val glass = LocalGlassColors.current
+    val noise = rememberFrostNoise()
     val total = targets.size
-    val measurer = rememberTextMeasurer()
-    val density = LocalDensity.current
-    val baseTextStyle = LocalTextStyle.current
-    val nodeStyles = remember(baseTextStyle) {
-        NodeTextStyles(
-            region = baseTextStyle.copy(fontSize = 12.sp, lineHeight = 14.sp),
-            ip = baseTextStyle.copy(fontSize = 11.sp, lineHeight = 12.sp),
-            pill = baseTextStyle.copy(fontSize = 10.sp, lineHeight = 12.sp)
-        )
-    }
-    val infoBlockWidth = remember(results, measurer, density, nodeStyles) {
-        infoBlockWidthFor(results, measurer, density, nodeStyles)
-    }
 
     Box(
         Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(glass.backgroundTop, MaterialTheme.colorScheme.background)
-                )
-            )
+            .background(glass.pageBg)
     ) {
         Column(Modifier.fillMaxSize()) {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .background(glass.backgroundTop)
+                    .glassSurface(
+                        glass = glass,
+                        noise = noise,
+                        bottomHairline = true,
+                        topHighlight = false,
+                        bottomScrim = false
+                    )
             ) {
                 Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
                 Row(
@@ -226,62 +233,74 @@ fun ConnectivityScreen(
                         GlassIconButton(Lucide.Play, "开始测试", onRerun)
                     }
                 }
-                HorizontalDivider(color = glass.border)
             }
-            Column(
-                Modifier
+
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .weight(1f),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 targets.groupBy { it.category }.forEach { (category, items) ->
-                    Text(
-                        text = category,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-                    )
-                    items.forEach { target ->
-                        ResultRow(target, results[target.name], running, reputation, infoBlockWidth)
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            text = category,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                    items(items, key = { it.name }) { target ->
+                        PlatformCard(
+                            target = target,
+                            result = results[target.name],
+                            samples = samples[target.name] ?: results[target.name]?.samples.orEmpty(),
+                            active = running || target.name in retrying,
+                            reputation = reputation,
+                            onRetry = { onRetry(target) }
+                        )
                     }
                 }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        text = "解锁状态按各平台探测结果与出口地区判定；结果反映手机当前网络路径，仅供参考。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
             }
-            Text(
-                text = "解锁状态按各平台探测结果与出口地区判定；结果反映手机当前网络路径，仅供参考。",
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-            )
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
     }
 }
 
 @Composable
-private fun ResultRow(
+private fun PlatformCard(
     target: ProbeTarget,
     result: ProbeResult?,
-    running: Boolean,
+    samples: List<Long>,
+    active: Boolean,
     reputation: Map<String, IpReputation>,
-    infoBlockWidth: Dp
+    onRetry: () -> Unit
 ) {
     val glass = LocalGlassColors.current
     val (brandIcon, accent) = visualPainter(target.name)
-    Row(
+    val shape = RoundedCornerShape(14.dp)
+
+    Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(11.dp))
-            .background(glass.buttonBg)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clip(shape)
+            .background(glass.cardBg)
+            .border(1.dp, glass.cardBorder, shape)
+            .padding(horizontal = 12.dp, vertical = 11.dp)
     ) {
-        Row(
-            Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
                     .size(26.dp)
@@ -296,91 +315,61 @@ private fun ResultRow(
                     tint = accent
                 )
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(8.dp))
             Text(
                 text = target.name,
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            Spacer(Modifier.width(8.dp))
-        }
-        if (result == null) {
-            if (running) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    strokeWidth = 1.5.dp
-                )
-            } else {
-                Text("—", color = MutedColor, fontSize = 13.sp)
-            }
-        } else {
-            // Measured-width info block: its left edge (region flag / IP start) and its right
-            // edge (status dot / pinned pill) are the same for every row, so flags, IPs, pills
-            // and dots all line up across rows.
-            Column(Modifier.width(infoBlockWidth), horizontalAlignment = Alignment.Start) {
-                if (result.status == ProbeStatus.FAILED) {
-                    // A failed probe has no region/latency: centre the label in the block while
-                    // the status dot stays pinned right so it lines up with the other rows.
-                    Box(Modifier.fillMaxWidth()) {
-                        Text(
-                            text = FailedProbeLabel,
-                            color = FailedColor,
-                            fontSize = 12.sp,
-                            lineHeight = 14.sp,
-                            modifier = Modifier.align(Alignment.Center)
-                        )
-                        StatusDot(result.status, Modifier.align(Alignment.CenterEnd))
-                    }
-                } else {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        result.region?.let { region ->
-                            val flag = remember(region) { flagVector(region) }
-                            if (flag != null) {
-                                FlagBadge(flag)
-                                Spacer(Modifier.width(5.dp))
-                            }
-                            Text(
-                                text = region,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp,
-                                lineHeight = 14.sp
-                            )
-                        }
-                        Spacer(Modifier.weight(1f))
-                        // A FAILED probe only knows how long it waited out the timeout, which is
-                        // not a latency — show nothing for it.
-                        if (result.latencyMs >= 0) {
-                            Text(
-                                text = "${result.latencyMs}ms",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp,
-                                lineHeight = 14.sp
-                            )
-                            Spacer(Modifier.width(6.dp))
-                        }
-                        StatusDot(result.status)
-                    }
+            result?.region?.let { region ->
+                val flag = remember(region) { flagVector(region) }
+                if (flag != null) {
+                    FlagBadge(flag)
+                    Spacer(Modifier.width(4.dp))
                 }
-                result.ip?.let { ip ->
+                Text(
+                    text = region,
+                    color = MutedColor,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+
+        Spacer(Modifier.height(11.dp))
+
+        val density = LocalDensity.current
+        val statusRowHeight = with(density) { StatusRowHeight.toDp() }
+        val ipRowHeight = with(density) { IpRowHeight.toDp() }
+
+        Column(Modifier.fillMaxWidth()) {
+            // Status + egress-IP region with a fixed height: a card that has an IP fills both
+            // rows, while a card without one centres its single status row in the same space,
+            // so every card in the grid stays the same size.
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = statusRowHeight + RowGap + ipRowHeight),
+                verticalArrangement = Arrangement.Center
+            ) {
+                StatusRow(result, active, onRetry)
+                result?.ip?.let { ip ->
+                    Spacer(Modifier.height(RowGap))
                     Row(
-                        Modifier.fillMaxWidth(),
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = ipRowHeight),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // IP at the block's left, the pill pinned to its right edge so it shares the
-                        // status dot's column. A long address (IPv6) is pre-shortened for display, so
-                        // every row's IP width stays in the same ballpark.
                         Text(
                             text = displayIp(ip),
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                             fontSize = 11.sp,
-                            lineHeight = 12.sp,
+                            lineHeight = IpRowHeight,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
@@ -392,109 +381,120 @@ private fun ResultRow(
                     }
                 }
             }
+
+            // Fixed slots that fill in as each sample arrives, so the dots "load" one by one.
+            // A failed probe never samples, so its slots stay invisible but still hold the row.
+            val showSlots = samples.isNotEmpty() ||
+                (result != null && result.status != ProbeStatus.FAILED)
+            Spacer(Modifier.height(5.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                repeat(LATENCY_SAMPLE_COUNT) { index ->
+                    if (showSlots) {
+                        SampleDot(samples.getOrNull(index))
+                    } else {
+                        Spacer(Modifier.size(SampleDotSize))
+                    }
+                }
+            }
         }
     }
 }
 
-/**
- * Status dot: a solid core inside an outward-expanding ring, tinted by status
- * (green unlocked, amber limited/flagged, red blocked/failed).
- *
- * The ripple value is read inside the draw lambda, so each frame only invalidates the draw phase
- * rather than recomposing every row.
- */
+/** One latency-sample dot. A null value is a not-yet-filled slot, shown as a faint placeholder. */
 @Composable
-private fun StatusDot(status: ProbeStatus, modifier: Modifier = Modifier) {
-    val color = statusColor(status)
-    val transition = rememberInfiniteTransition(label = "statusDot")
-    val ripple = transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1400, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "ripple"
-    )
-    Canvas(modifier.size(10.dp)) {
-        val core = size.minDimension / 2f * 0.55f
-        val ring = core + (size.minDimension / 2f * 1.75f - core) * ripple.value
-        drawCircle(
-            color = color.copy(alpha = (1f - ripple.value) * 0.55f),
-            radius = ring,
-            style = Stroke(width = 1.25.dp.toPx())
+private fun SampleDot(ms: Long?) {
+    if (ms == null) {
+        Box(
+            Modifier
+                .size(SampleDotSize)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.16f))
         )
-        drawCircle(color = color, radius = core)
+        return
     }
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        appear.animateTo(1f, tween(durationMillis = 260, easing = FastOutSlowInEasing))
+    }
+    Box(
+        Modifier
+            .size(SampleDotSize)
+            .scale(0.4f + 0.6f * appear.value)
+            .alpha(appear.value)
+            .clip(CircleShape)
+            .background(sampleColor(ms))
+    )
 }
 
-/** Floor for the info block width, used before any result has been measured. */
-private val InfoBlockMinWidth = 96.dp
-
-/** Longest IPv4 text (`xxx.xxx.xxx.xxx`), which is also the widest address the block allows. */
-private const val Ipv4MaxChars = 15
-
-/**
- * Display form of an egress address. An IPv4 fits as-is; a longer address (IPv6) is pre-shortened
- * to its first groups so it lands inside the IPv4-sized slot — keeping every row's IP a similar
- * width — instead of filling the slot and relying on an ellipsis.
- */
-private fun displayIp(ip: String): String {
-    if (ip.length <= Ipv4MaxChars) return ip
-    val groups = ip.split(':')
-    return if (groups.size >= 3) {
-        groups.take(3).joinToString(":") + "…"
-    } else {
-        ip.take(Ipv4MaxChars - 1) + "…"
-    }
+/** Latency-sample dot colour: fast green, middling amber, slow or failed red. */
+private fun sampleColor(ms: Long): Color = when {
+    ms < 0 -> FailedColor
+    ms <= 300 -> OkColor
+    ms <= 700 -> RestrictedColor
+    else -> FailedColor
 }
 
-/**
- * Text styles resolved from the theme, so measuring with them yields the same widths the rows
- * actually render. A bare `TextStyle` misses the theme's font/letter-spacing (Material's default
- * `bodyLarge` carries `letterSpacing = 0.5sp`), which made the measured block too narrow and
- * ellipsised the IP.
- */
-private data class NodeTextStyles(
-    val region: TextStyle,
-    val ip: TextStyle,
-    val pill: TextStyle
-)
-
-/**
- * Width of each row's info block = the widest line across the current results, so the region flag,
- * the IP and the status dot (and, via the pinned pill, the reputation tag) share a column while
- * the block still hugs its content. Re-measured as results stream in.
- */
-private fun infoBlockWidthFor(
-    results: Map<String, ProbeResult>,
-    measurer: TextMeasurer,
-    density: Density,
-    styles: NodeTextStyles
-): Dp {
-    fun px(value: Dp) = with(density) { value.roundToPx() }
-    fun textWidth(text: String, style: TextStyle) = measurer.measure(text, style).size.width
-
-    val pillWidth = textWidth("住宅", styles.pill) + px(12.dp)
-    // Size the block for at most a full IPv4 (`xxx.xxx.xxx.xxx`); a longer address (IPv6) is left
-    // to ellipsise rather than stretching this block — and every other row — far wider.
-    val ipWidthCap = textWidth("255.255.255.255", styles.ip)
-    var widest = px(InfoBlockMinWidth)
-    results.values.forEach { result ->
-        val line1 = if (result.status == ProbeStatus.FAILED) {
-            textWidth(FailedProbeLabel, styles.region) + px(10.dp)
-        } else {
-            val region = result.region
-            (if (region != null) px(21.dp) + px(5.dp) + textWidth(region, styles.region) else 0) +
-                (if (result.latencyMs >= 0) textWidth("${result.latencyMs}ms", styles.region) + px(6.dp) else 0) +
-                px(10.dp)
+@Composable
+private fun StatusRow(result: ProbeResult?, active: Boolean, onRetry: () -> Unit) {
+    val minHeight = with(LocalDensity.current) { StatusRowHeight.toDp() }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = minHeight),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (result == null) {
+            if (active) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    strokeWidth = 1.5.dp
+                )
+            } else {
+                Text("—", color = MutedColor, fontSize = 13.sp, lineHeight = StatusRowHeight)
+            }
+            return@Row
         }
-        val line2 = result.ip?.let {
-            minOf(textWidth(displayIp(it), styles.ip), ipWidthCap) + px(8.dp) + pillWidth
-        } ?: 0
-        widest = maxOf(widest, line1, line2)
+        val (icon, color, label) = statusVisual(result.status)
+        Box(
+            Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(12.dp), tint = color)
+        }
+        Spacer(Modifier.width(7.dp))
+        Text(label, color = color, fontSize = 13.sp, lineHeight = StatusRowHeight, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.weight(1f))
+        if (result.status == ProbeStatus.FAILED) {
+            RetryButton(onRetry)
+        } else if (result.latencyMs >= 0) {
+            Text("${result.latencyMs}ms", color = MutedColor, fontSize = 12.sp)
+        }
     }
-    return with(density) { (widest + px(2.dp)).toDp() }
+}
+
+/** Round single-item re-probe button shown on a failed card. */
+@Composable
+private fun RetryButton(onClick: () -> Unit) {
+    val shape = RoundedCornerShape(7.dp)
+    Box(
+        Modifier
+            .size(22.dp)
+            .clip(shape)
+            .border(1.dp, FailedColor.copy(alpha = 0.35f), shape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Lucide.RefreshCw,
+            contentDescription = "重试",
+            modifier = Modifier.size(13.dp),
+            tint = FailedColor
+        )
+    }
 }
 
 /** Tiny pill tagging the egress IP as residential / mobile / datacenter / proxy. */
@@ -516,10 +516,27 @@ private fun ReputationPill(rep: IpReputation) {
     }
 }
 
-private fun statusColor(status: ProbeStatus): Color = when (status) {
-    ProbeStatus.UNLOCKED -> OkColor
-    ProbeStatus.LIMITED, ProbeStatus.FLAGGED -> RestrictedColor
-    ProbeStatus.BLOCKED, ProbeStatus.FAILED -> FailedColor
+private fun statusVisual(status: ProbeStatus): Triple<ImageVector, Color, String> = when (status) {
+    ProbeStatus.UNLOCKED -> Triple(Lucide.CircleCheck, OkColor, "可用")
+    ProbeStatus.LIMITED, ProbeStatus.FLAGGED -> Triple(Lucide.CircleAlert, RestrictedColor, "受限")
+    ProbeStatus.BLOCKED, ProbeStatus.FAILED -> Triple(Lucide.CircleX, FailedColor, "不可用")
+}
+
+/** Longest IPv4 text (`xxx.xxx.xxx.xxx`), the widest address the IP line allows. */
+private const val Ipv4MaxChars = 15
+
+/**
+ * Display form of an egress address: an IPv4 fits as-is; a longer address (IPv6) is pre-shortened
+ * to its first groups instead of filling the line and relying on an ellipsis.
+ */
+private fun displayIp(ip: String): String {
+    if (ip.length <= Ipv4MaxChars) return ip
+    val groups = ip.split(':')
+    return if (groups.size >= 3) {
+        groups.take(3).joinToString(":") + "…"
+    } else {
+        ip.take(Ipv4MaxChars - 1) + "…"
+    }
 }
 
 private data class PlatformVisual(val icon: ImageVector, val color: Color)

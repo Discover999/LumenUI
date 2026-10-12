@@ -95,7 +95,12 @@ data class GlassColors(
     val buttonBorder: Color,
     val fieldBg: Color,
     val sheetBg: Color,
-    val backgroundTop: Color
+    val backgroundTop: Color,
+    /** Opaque raised surface for content cards, clearly separated from the page behind it. */
+    val cardBg: Color,
+    val cardBorder: Color,
+    /** Flat page base behind content cards (deeper than the card so it reads as a background). */
+    val pageBg: Color
 )
 
 private val DarkGlass = GlassColors(
@@ -109,7 +114,10 @@ private val DarkGlass = GlassColors(
     buttonBorder = Color.White.copy(alpha = 0.14f),
     fieldBg = Color.White.copy(alpha = 0.08f),
     sheetBg = Color(0xFF141922),
-    backgroundTop = Color(0xFF10151F)
+    backgroundTop = Color(0xFF10151F),
+    cardBg = Color(0xFF1D1D1F),
+    cardBorder = Color.White.copy(alpha = 0.10f),
+    pageBg = Color(0xFF0A0A0B)
 )
 
 private val LightGlass = GlassColors(
@@ -123,7 +131,10 @@ private val LightGlass = GlassColors(
     buttonBorder = Color(0xFF0B0E15).copy(alpha = 0.07f),
     fieldBg = Color.White.copy(alpha = 0.72f),
     sheetBg = Color(0xFFF7F9FC),
-    backgroundTop = Color(0xFFFFFFFF)
+    backgroundTop = Color(0xFFFFFFFF),
+    cardBg = Color(0xFFFFFFFF),
+    cardBorder = Color(0xFF0B0E15).copy(alpha = 0.07f),
+    pageBg = Color(0xFFE7ECF3)
 )
 
 val LocalGlassColors = staticCompositionLocalOf { DarkGlass }
