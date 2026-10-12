@@ -345,6 +345,7 @@ private fun PlatformCard(
         val density = LocalDensity.current
         val statusRowHeight = with(density) { StatusRowHeight.toDp() }
         val ipRowHeight = with(density) { IpRowHeight.toDp() }
+        val avgLatency = averageLatency(samples)
 
         Column(Modifier.fillMaxWidth()) {
             // Status + egress-IP region with a fixed height: a card that has an IP fills both
@@ -356,7 +357,7 @@ private fun PlatformCard(
                     .heightIn(min = statusRowHeight + RowGap + ipRowHeight),
                 verticalArrangement = Arrangement.Center
             ) {
-                StatusRow(result, active, onRetry)
+                StatusRow(result, active, avgLatency, onRetry)
                 result?.ip?.let { ip ->
                     Spacer(Modifier.height(RowGap))
                     Row(
@@ -434,8 +435,14 @@ private fun sampleColor(ms: Long): Color = when {
     else -> FailedColor
 }
 
+/** Mean of the successful samples, or null when none have landed (or all failed). */
+private fun averageLatency(samples: List<Long>): Long? {
+    val ok = samples.filter { it >= 0 }
+    return if (ok.isEmpty()) null else ok.sum() / ok.size
+}
+
 @Composable
-private fun StatusRow(result: ProbeResult?, active: Boolean, onRetry: () -> Unit) {
+private fun StatusRow(result: ProbeResult?, active: Boolean, avgLatency: Long?, onRetry: () -> Unit) {
     val minHeight = with(LocalDensity.current) { StatusRowHeight.toDp() }
     Row(
         Modifier
@@ -452,6 +459,12 @@ private fun StatusRow(result: ProbeResult?, active: Boolean, onRetry: () -> Unit
                 )
             } else {
                 Text("—", color = MutedColor, fontSize = 13.sp, lineHeight = StatusRowHeight)
+            }
+            // While the status is still pending, show the running sample average so it fills in
+            // dot by dot alongside the latency row below.
+            if (avgLatency != null) {
+                Spacer(Modifier.weight(1f))
+                Text("${avgLatency}ms", color = MutedColor, fontSize = 12.sp)
             }
             return@Row
         }
@@ -470,8 +483,9 @@ private fun StatusRow(result: ProbeResult?, active: Boolean, onRetry: () -> Unit
         Spacer(Modifier.weight(1f))
         if (result.status == ProbeStatus.FAILED) {
             RetryButton(onRetry)
-        } else if (result.latencyMs >= 0) {
-            Text("${result.latencyMs}ms", color = MutedColor, fontSize = 12.sp)
+        } else {
+            val ms = avgLatency ?: result.latencyMs
+            if (ms >= 0) Text("${ms}ms", color = MutedColor, fontSize = 12.sp)
         }
     }
 }

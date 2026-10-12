@@ -2,8 +2,8 @@ package com.lumenui.app.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -186,6 +186,9 @@ class ConnectivityProbe(base: OkHttpClient) {
      * unreachable would otherwise cost one timeout per sample (8 timeouts ≈ 48s), which made
      * the whole test take minutes. Concurrency is capped so the samples still measure roughly
      * one-at-a-time latency.
+     *
+     * Samples are reported one at a time with a [SAMPLE_INTERVAL_MS] gap between them, so the
+     * dots (and the running average) fill in at a readable pace instead of arriving in a burst.
      */
     private suspend fun sampleLatency(
         target: ProbeTarget,
@@ -208,10 +211,14 @@ class ConnectivityProbe(base: OkHttpClient) {
         }
         // Report in sample order (not completion order) so the card fills its dots left to right.
         val out = ArrayList<Long>(count)
-        deferred.forEach { sample ->
+        deferred.forEachIndexed { index, sample ->
             val ms = sample.await()
             out.add(ms)
-            onSample?.let { cb -> withContext(Dispatchers.Main) { cb(ms) } }
+            onSample?.let { cb ->
+                withContext(Dispatchers.Main) { cb(ms) }
+                // Pace the dots (and the average they feed) so each one lands visibly.
+                if (index < count - 1) delay(SAMPLE_INTERVAL_MS)
+            }
         }
         out
     }
@@ -515,6 +522,9 @@ class ConnectivityProbe(base: OkHttpClient) {
     private companion object {
         /** How many latency samples run at once. */
         const val SAMPLE_CONCURRENCY = 4
+
+        /** Minimum gap between reporting two samples, so the dots don't pop in a burst. */
+        const val SAMPLE_INTERVAL_MS = 300L
 
         const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
