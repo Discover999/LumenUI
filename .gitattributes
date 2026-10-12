@@ -1,0 +1,23 @@
+# Normalise line endings to LF inside the repository, and check out LF too, so a
+# Windows working copy stops fighting the committed content. The only exceptions
+# are the Windows launcher scripts, which cmd.exe wants as CRLF.
+* text=auto eol=lf
+
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+gradlew text eol=lf
+
+# Binary — never convert.
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.webp   binary
+*.gif    binary
+*.ico    binary
+*.ttf    binary
+*.otf    binary
+*.woff   binary
+*.woff2  binary
+*.jar    binary
+*.jks    binary
+*.keystore binary
