@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108" role="img" aria-label="LumenUI">
+  <title>LumenUI</title>
+  <!-- Launcher icon: white adaptive background + the "panel" mark (a wide accent tile over two neutral tiles).
+       Paths are copied verbatim from app/src/main/res/drawable/ic_launcher_foreground.xml. -->
+  <rect x="0.5" y="0.5" width="107" height="107" rx="23" fill="#FFFFFF" stroke="#00000022"/>
+  <path fill="#3D74E6" d="M37,31 H71 A6,6 0 0,1 77,37 V45 A6,6 0 0,1 71,51 H37 A6,6 0 0,1 31,45 V37 A6,6 0 0,1 37,31 Z"/>
+  <path fill="#9BA9BE" d="M37,57 H45 A6,6 0 0,1 51,63 V71 A6,6 0 0,1 45,77 H37 A6,6 0 0,1 31,71 V63 A6,6 0 0,1 37,57 Z"/>
+  <path fill="#9BA9BE" d="M63,57 H71 A6,6 0 0,1 77,63 V71 A6,6 0 0,1 71,77 H63 A6,6 0 0,1 57,71 V63 A6,6 0 0,1 63,57 Z"/>
+</svg>
