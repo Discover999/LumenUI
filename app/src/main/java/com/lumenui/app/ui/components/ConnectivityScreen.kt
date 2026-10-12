@@ -1,6 +1,13 @@
 package com.lumenui.app.ui.components
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,12 +42,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.Apple
@@ -89,6 +104,7 @@ import com.composables.icons.lucide.Youtube
 import com.composables.icons.lucide.Zap
 import com.lumenui.app.R
 import com.lumenui.app.data.ConnectivityTargets
+import com.lumenui.app.data.IpReputation
 import com.lumenui.app.data.ProbeResult
 import com.lumenui.app.data.ProbeStatus
 import com.lumenui.app.data.ProbeTarget
@@ -128,6 +144,9 @@ private val RestrictedColor = Color(0xFFE5B567)
 private val FailedColor = Color(0xFFE0685F)
 private val MutedColor = Color(0xFF9BA9BE)
 
+/** Shown in place of the region/latency when a probe could not be reached at all. */
+private const val FailedProbeLabel = "连接失败"
+
 /**
  * Full-screen connectivity / region-unlock page. Nothing runs until the user starts it;
  * each result then lands on its own row.
@@ -137,12 +156,26 @@ fun ConnectivityScreen(
     targets: List<ProbeTarget>,
     running: Boolean,
     results: Map<String, ProbeResult>,
+    reputation: Map<String, IpReputation>,
     onBack: () -> Unit,
     onRerun: () -> Unit,
     onSettings: () -> Unit
 ) {
     val glass = LocalGlassColors.current
     val total = targets.size
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val baseTextStyle = LocalTextStyle.current
+    val nodeStyles = remember(baseTextStyle) {
+        NodeTextStyles(
+            region = baseTextStyle.copy(fontSize = 12.sp, lineHeight = 14.sp),
+            ip = baseTextStyle.copy(fontSize = 11.sp, lineHeight = 12.sp),
+            pill = baseTextStyle.copy(fontSize = 10.sp, lineHeight = 12.sp)
+        )
+    }
+    val infoBlockWidth = remember(results, measurer, density, nodeStyles) {
+        infoBlockWidthFor(results, measurer, density, nodeStyles)
+    }
 
     Box(
         Modifier
@@ -211,7 +244,7 @@ fun ConnectivityScreen(
                         modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
                     )
                     items.forEach { target ->
-                        ResultRow(target, results[target.name], running)
+                        ResultRow(target, results[target.name], running, reputation, infoBlockWidth)
                     }
                 }
             }
@@ -228,7 +261,13 @@ fun ConnectivityScreen(
 }
 
 @Composable
-private fun ResultRow(target: ProbeTarget, result: ProbeResult?, running: Boolean) {
+private fun ResultRow(
+    target: ProbeTarget,
+    result: ProbeResult?,
+    running: Boolean,
+    reputation: Map<String, IpReputation>,
+    infoBlockWidth: Dp
+) {
     val glass = LocalGlassColors.current
     val (brandIcon, accent) = visualPainter(target.name)
     Row(
@@ -239,29 +278,35 @@ private fun ResultRow(target: ProbeTarget, result: ProbeResult?, running: Boolea
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            Modifier
-                .size(26.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(accent.copy(alpha = 0.16f)),
-            contentAlignment = Alignment.Center
+        Row(
+            Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                brandIcon,
-                contentDescription = null,
-                modifier = Modifier.size(15.dp),
-                tint = accent
+            Box(
+                Modifier
+                    .size(26.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(accent.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    brandIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp),
+                    tint = accent
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = target.name,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
+            Spacer(Modifier.width(8.dp))
         }
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = target.name,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
         if (result == null) {
             if (running) {
                 CircularProgressIndicator(
@@ -273,41 +318,202 @@ private fun ResultRow(target: ProbeTarget, result: ProbeResult?, running: Boolea
                 Text("—", color = MutedColor, fontSize = 13.sp)
             }
         } else {
-            result.region?.let { region ->
-                val flag = remember(region) { flagVector(region) }
-                if (flag != null) {
-                    FlagBadge(flag)
-                    Spacer(Modifier.width(5.dp))
+            // Measured-width info block: its left edge (region flag / IP start) and its right
+            // edge (status dot / pinned pill) are the same for every row, so flags, IPs, pills
+            // and dots all line up across rows.
+            Column(Modifier.width(infoBlockWidth), horizontalAlignment = Alignment.Start) {
+                if (result.status == ProbeStatus.FAILED) {
+                    // A failed probe has no region/latency: centre the label in the block while
+                    // the status dot stays pinned right so it lines up with the other rows.
+                    Box(Modifier.fillMaxWidth()) {
+                        Text(
+                            text = FailedProbeLabel,
+                            color = FailedColor,
+                            fontSize = 12.sp,
+                            lineHeight = 14.sp,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                        StatusDot(result.status, Modifier.align(Alignment.CenterEnd))
+                    }
+                } else {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        result.region?.let { region ->
+                            val flag = remember(region) { flagVector(region) }
+                            if (flag != null) {
+                                FlagBadge(flag)
+                                Spacer(Modifier.width(5.dp))
+                            }
+                            Text(
+                                text = region,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                                lineHeight = 14.sp
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        // A FAILED probe only knows how long it waited out the timeout, which is
+                        // not a latency — show nothing for it.
+                        if (result.latencyMs >= 0) {
+                            Text(
+                                text = "${result.latencyMs}ms",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                                lineHeight = 14.sp
+                            )
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        StatusDot(result.status)
+                    }
                 }
-                Text(
-                    text = region,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp
-                )
-                Spacer(Modifier.width(9.dp))
+                result.ip?.let { ip ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // IP at the block's left, the pill pinned to its right edge so it shares the
+                        // status dot's column. A long address (IPv6) is pre-shortened for display, so
+                        // every row's IP width stays in the same ballpark.
+                        Text(
+                            text = displayIp(ip),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            fontSize = 11.sp,
+                            lineHeight = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        reputation[ip]?.let { rep ->
+                            Spacer(Modifier.width(8.dp))
+                            ReputationPill(rep)
+                        }
+                    }
+                }
             }
-            if (result.latencyMs >= 0) {
-                Text(
-                    text = "${result.latencyMs}ms",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp
-                )
-                Spacer(Modifier.width(6.dp))
-            }
-            StatusDot(result.status)
         }
     }
 }
 
-/** Solid status dot: green unlocked, amber limited/flagged, red blocked/failed. */
+/**
+ * Status dot: a solid core inside an outward-expanding ring, tinted by status
+ * (green unlocked, amber limited/flagged, red blocked/failed).
+ *
+ * The ripple value is read inside the draw lambda, so each frame only invalidates the draw phase
+ * rather than recomposing every row.
+ */
 @Composable
-private fun StatusDot(status: ProbeStatus) {
+private fun StatusDot(status: ProbeStatus, modifier: Modifier = Modifier) {
+    val color = statusColor(status)
+    val transition = rememberInfiniteTransition(label = "statusDot")
+    val ripple = transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ripple"
+    )
+    Canvas(modifier.size(10.dp)) {
+        val core = size.minDimension / 2f * 0.55f
+        val ring = core + (size.minDimension / 2f * 1.75f - core) * ripple.value
+        drawCircle(
+            color = color.copy(alpha = (1f - ripple.value) * 0.55f),
+            radius = ring,
+            style = Stroke(width = 1.25.dp.toPx())
+        )
+        drawCircle(color = color, radius = core)
+    }
+}
+
+/** Floor for the info block width, used before any result has been measured. */
+private val InfoBlockMinWidth = 96.dp
+
+/** Longest IPv4 text (`xxx.xxx.xxx.xxx`), which is also the widest address the block allows. */
+private const val Ipv4MaxChars = 15
+
+/**
+ * Display form of an egress address. An IPv4 fits as-is; a longer address (IPv6) is pre-shortened
+ * to its first groups so it lands inside the IPv4-sized slot — keeping every row's IP a similar
+ * width — instead of filling the slot and relying on an ellipsis.
+ */
+private fun displayIp(ip: String): String {
+    if (ip.length <= Ipv4MaxChars) return ip
+    val groups = ip.split(':')
+    return if (groups.size >= 3) {
+        groups.take(3).joinToString(":") + "…"
+    } else {
+        ip.take(Ipv4MaxChars - 1) + "…"
+    }
+}
+
+/**
+ * Text styles resolved from the theme, so measuring with them yields the same widths the rows
+ * actually render. A bare `TextStyle` misses the theme's font/letter-spacing (Material's default
+ * `bodyLarge` carries `letterSpacing = 0.5sp`), which made the measured block too narrow and
+ * ellipsised the IP.
+ */
+private data class NodeTextStyles(
+    val region: TextStyle,
+    val ip: TextStyle,
+    val pill: TextStyle
+)
+
+/**
+ * Width of each row's info block = the widest line across the current results, so the region flag,
+ * the IP and the status dot (and, via the pinned pill, the reputation tag) share a column while
+ * the block still hugs its content. Re-measured as results stream in.
+ */
+private fun infoBlockWidthFor(
+    results: Map<String, ProbeResult>,
+    measurer: TextMeasurer,
+    density: Density,
+    styles: NodeTextStyles
+): Dp {
+    fun px(value: Dp) = with(density) { value.roundToPx() }
+    fun textWidth(text: String, style: TextStyle) = measurer.measure(text, style).size.width
+
+    val pillWidth = textWidth("住宅", styles.pill) + px(12.dp)
+    // Size the block for at most a full IPv4 (`xxx.xxx.xxx.xxx`); a longer address (IPv6) is left
+    // to ellipsise rather than stretching this block — and every other row — far wider.
+    val ipWidthCap = textWidth("255.255.255.255", styles.ip)
+    var widest = px(InfoBlockMinWidth)
+    results.values.forEach { result ->
+        val line1 = if (result.status == ProbeStatus.FAILED) {
+            textWidth(FailedProbeLabel, styles.region) + px(10.dp)
+        } else {
+            val region = result.region
+            (if (region != null) px(21.dp) + px(5.dp) + textWidth(region, styles.region) else 0) +
+                (if (result.latencyMs >= 0) textWidth("${result.latencyMs}ms", styles.region) + px(6.dp) else 0) +
+                px(10.dp)
+        }
+        val line2 = result.ip?.let {
+            minOf(textWidth(displayIp(it), styles.ip), ipWidthCap) + px(8.dp) + pillWidth
+        } ?: 0
+        widest = maxOf(widest, line1, line2)
+    }
+    return with(density) { (widest + px(2.dp)).toDp() }
+}
+
+/** Tiny pill tagging the egress IP as residential / mobile / datacenter / proxy. */
+@Composable
+private fun ReputationPill(rep: IpReputation) {
+    val color = when {
+        rep.proxy -> FailedColor
+        rep.hosting -> RestrictedColor
+        rep.mobile -> MutedColor
+        else -> OkColor
+    }
     Box(
         Modifier
-            .size(10.dp)
-            .clip(CircleShape)
-            .background(statusColor(status))
-    )
+            .clip(RoundedCornerShape(percent = 50))
+            .background(color.copy(alpha = 0.16f))
+            .padding(horizontal = 6.dp, vertical = 1.dp)
+    ) {
+        Text(text = rep.label, color = color, fontSize = 10.sp, lineHeight = 12.sp)
+    }
 }
 
 private fun statusColor(status: ProbeStatus): Color = when (status) {

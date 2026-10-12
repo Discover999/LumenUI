@@ -3,6 +3,7 @@ package com.lumenui.app.di
 import android.content.Context
 import com.lumenui.app.data.BackendRepository
 import com.lumenui.app.data.ConnectivityProbe
+import com.lumenui.app.data.IpReputationApi
 import com.lumenui.app.data.MihomoApi
 import com.lumenui.app.data.SettingsRepository
 import okhttp3.OkHttpClient
@@ -21,4 +22,5 @@ class AppContainer(context: Context) {
 
     val mihomoApi = MihomoApi(httpClient)
     val connectivity = ConnectivityProbe(httpClient)
+    val ipReputation = IpReputationApi(httpClient)
 }

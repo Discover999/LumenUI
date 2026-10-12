@@ -25,6 +25,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.lumenui.app.LumenApp
 import com.lumenui.app.data.Backend
 import com.lumenui.app.data.ConnectivityTargets
+import com.lumenui.app.data.IpReputation
 import com.lumenui.app.data.ProbeResult
 import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Globe
@@ -75,6 +76,7 @@ fun MainScreen() {
     var showConnectivity by remember { mutableStateOf(false) }
     var connectivityRunning by remember { mutableStateOf(false) }
     var connectivityResults by remember { mutableStateOf<Map<String, ProbeResult>>(emptyMap()) }
+    var reputationByIp by remember { mutableStateOf<Map<String, IpReputation>>(emptyMap()) }
     var connectivityRunId by remember { mutableStateOf(0) }
     var selectedProbes by remember { mutableStateOf(app.container.settings.connectivityTargets) }
     var showProbeSettings by remember { mutableStateOf(false) }
@@ -85,6 +87,12 @@ fun MainScreen() {
         if (!showConnectivity || connectivityRunId == 0) return@LaunchedEffect
         connectivityRunning = true
         connectivityResults = emptyMap()
+        reputationByIp = emptyMap()
+        // Reputation is looked up once per distinct egress IP, kicked off the moment a
+        // probe yields an IP (not after all probes) so it overlaps the remaining work.
+        // Everything here runs on the composition's Main dispatcher, so the plain set
+        // needs no synchronization; ip-api.com's free tier allows only ~45 requests/min.
+        val started = mutableSetOf<String>()
         val targets = ConnectivityTargets.all.filter { it.name in selectedProbes }
         coroutineScope {
             val gate = Semaphore(PROBE_CONCURRENCY)
@@ -93,6 +101,14 @@ fun MainScreen() {
                     gate.withPermit {
                         val result = app.container.connectivity.probe(target)
                         connectivityResults = connectivityResults + (target.name to result)
+                        result.ip?.let { ip ->
+                            if (started.add(ip)) {
+                                launch {
+                                    val rep = app.container.ipReputation.lookup(ip)
+                                    if (rep != null) reputationByIp = reputationByIp + (ip to rep)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -225,6 +241,7 @@ fun MainScreen() {
                 targets = ConnectivityTargets.all.filter { it.name in selectedProbes },
                 running = connectivityRunning,
                 results = connectivityResults,
+                reputation = reputationByIp,
                 onBack = { showConnectivity = false },
                 onRerun = { connectivityRunId++ },
                 onSettings = { showProbeSettings = true }
