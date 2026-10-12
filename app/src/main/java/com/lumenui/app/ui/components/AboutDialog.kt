@@ -39,6 +39,9 @@ import com.lumenui.app.BuildConfig
 import com.lumenui.app.ui.theme.LocalGlassColors
 
 private const val GITHUB_URL = "https://github.com/Discover999/LumenUI"
+
+/** Shown on the GitHub button: the `owner/repo` tail, without the host. */
+private const val GITHUB_LABEL = "Discover999/LumenUI"
 private const val PANEL_NAME = "zashboard"
 
 private val MarkBar = Color(0xFF3D74E6)
@@ -109,7 +112,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
                 )
                 Spacer(Modifier.width(9.dp))
                 Text(
-                    text = GITHUB_URL.removePrefix("https://"),
+                    text = GITHUB_LABEL,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 13.sp,
                     maxLines = 1,
