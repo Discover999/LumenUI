@@ -1,6 +1,12 @@
 <div align="center">
 
-# LumenUI
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/github/ffffff" />
+    <img src="https://cdn.simpleicons.org/github/181717" width="32" alt="GitHub" />
+  </picture>
+  LumenUI
+</h1>
 
 **连接外部 mihomo（Clash.Meta）后端的 Android 纯客户端**
 
@@ -92,14 +98,15 @@ app/src/main/
 
 LumenUI 立在这些开源项目之上：
 
-| 项目 | 用途 |
-| :---: | --- |
-| [zashboard](https://github.com/Zephyruso/zashboard) | 内置控制面板 |
-| [Lucide](https://lucide.dev) | 界面图标（`icons-lucide-cmp`） |
-| [Simple Icons](https://simpleicons.org) | 品牌图标（`simple-icons`） |
-| [FlagKit](https://github.com/linb/FlagKit) | 国家 / 地区旗帜（KMP 移植版 `dev.carlsen.flagkit`） |
+| 项目 | 用途 | 许可 |
+| :---: | --- | :---: |
+| [zashboard](https://github.com/Zephyruso/zashboard) | 内置控制面板 | MIT |
+| [Lucide](https://lucide.dev) | 界面图标（`icons-lucide-cmp`） | ISC |
+| [Simple Icons](https://simpleicons.org) | 品牌图标（`simple-icons`） | CC0-1.0 |
+| [FlagKit](https://github.com/acarlsen/kmp-flagkit) | 国家 / 地区旗帜（`dev.carlsen.flagkit`） | MIT |
 
-内置面板自带的第三方组件（Earth 贴图、DB-IP 数据等）见
+图标封装库（`icons-lucide-cmp` / `simple-icons`）自身均为 MIT。内置面板自带的第三方组件
+（Earth 贴图、DB-IP 数据等，CC BY 4.0）见
 [`assets/zashboard/THIRD_PARTY_NOTICES.md`](app/src/main/assets/zashboard/THIRD_PARTY_NOTICES.md)；以上项目的著作权均归各自作者所有。
 
 ---
