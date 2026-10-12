@@ -32,11 +32,13 @@ import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Globe
 import com.composables.icons.lucide.Info
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Radar
 import com.lumenui.app.ui.components.AboutDialog
 import com.lumenui.app.ui.components.BackendEditDialog
 import com.lumenui.app.ui.components.BackendsMenuContent
 import com.lumenui.app.ui.components.ConnectivityScreen
 import com.lumenui.app.ui.components.ConnectivitySettingsDialog
+import com.lumenui.app.ui.components.DnsLeakScreen
 import com.lumenui.app.ui.components.FrostedTopBar
 import com.lumenui.app.ui.components.GlassMenuItem
 import com.lumenui.app.ui.components.PanelWebView
@@ -76,6 +78,7 @@ fun MainScreen() {
     var showEditor by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     var showConnectivity by remember { mutableStateOf(false) }
+    var showDnsLeak by remember { mutableStateOf(false) }
     var connectivityRunning by remember { mutableStateOf(false) }
     var connectivityResults by remember { mutableStateOf<Map<String, ProbeResult>>(emptyMap()) }
     var reputationByIp by remember { mutableStateOf<Map<String, IpReputation>>(emptyMap()) }
@@ -124,8 +127,12 @@ fun MainScreen() {
         connectivityRunning = false
     }
 
-    BackHandler(enabled = showConnectivity || canGoBack) {
-        if (showConnectivity) showConnectivity = false else controller.goBack()
+    BackHandler(enabled = showConnectivity || showDnsLeak || canGoBack) {
+        when {
+            showConnectivity -> showConnectivity = false
+            showDnsLeak -> showDnsLeak = false
+            else -> controller.goBack()
+        }
     }
 
     val glass = LocalGlassColors.current
@@ -189,6 +196,10 @@ fun MainScreen() {
                         GlassMenuItem(Lucide.Globe, "连通性测试") {
                             dismiss()
                             showConnectivity = true
+                        }
+                        GlassMenuItem(Lucide.Radar, "DNS 泄露检测") {
+                            dismiss()
+                            showDnsLeak = true
                         }
                         GlassMenuItem(Lucide.ExternalLink, "在浏览器打开") {
                             dismiss()
@@ -294,6 +305,22 @@ fun MainScreen() {
                     app.container.settings.connectivityTargets = ConnectivityTargets.defaultSelected
                 },
                 onDismiss = { showProbeSettings = false }
+            )
+        }
+    }
+
+    if (showDnsLeak) {
+        // Full-screen page in its own window, so it covers the WebView and blocks touches.
+        Dialog(
+            onDismissRequest = { showDnsLeak = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
+            DnsLeakScreen(
+                onBack = { showDnsLeak = false },
+                load = { app.container.dnsLeak.run() }
             )
         }
     }
