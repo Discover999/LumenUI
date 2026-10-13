@@ -21,6 +21,10 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     private val _probe = MutableStateFlow<Probe?>(null)
     val probe: StateFlow<Probe?> = _probe.asStateFlow()
 
+    /** Latest probe per backend id, so the switcher can show every backend's latency at once. */
+    private val _probes = MutableStateFlow<Map<String, Probe>>(emptyMap())
+    val probes: StateFlow<Map<String, Probe>> = _probes.asStateFlow()
+
     init {
         _current.value?.let { refreshStatus(it) }
     }
@@ -40,10 +44,14 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     fun upsertBackend(backend: Backend) {
         val list = _backends.value.toMutableList()
         val index = list.indexOfFirst { it.id == backend.id }
+        val isNew = index < 0
         if (index >= 0) list[index] = backend else list.add(backend)
         _backends.value = list
         container.backends.save(list)
-        if (_current.value == null || _current.value?.id == backend.id) {
+        // A freshly added backend becomes the active one; editing keeps the current
+        // selection, except when the edited backend *is* the current one (re-selected
+        // so the change is applied).
+        if (isNew || _current.value?.id == backend.id) {
             selectBackend(backend)
         }
     }
@@ -52,6 +60,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         val list = _backends.value.filterNot { it.id == backend.id }
         _backends.value = list
         container.backends.save(list)
+        _probes.value = _probes.value - backend.id
         if (_current.value?.id == backend.id) {
             val next = list.firstOrNull()
             container.settings.currentBackendId = next?.id
@@ -66,32 +75,55 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
      * panel has, so additions *and* deletions made in the panel propagate. Entries that
      * already exist keep their app-side id, so the current selection survives a sync. An
      * empty panel list is ignored, to avoid wiping the app if the panel is unreadable/empty.
+     *
+     * [active] is the backend the panel currently has selected; when it maps to a known
+     * backend the app follows it, so switching backends inside the panel updates the top bar.
      */
-    fun syncFromPanel(panel: List<Backend>) {
+    fun syncFromPanel(panel: List<Backend>, active: Backend?) {
         if (panel.isEmpty()) return
         val unique = panel.distinctBy { it.identity() }
         val existing = _backends.value
         val byIdentity = existing.associateBy { it.identity() }
         val merged = unique.map { p -> byIdentity[p.identity()]?.let { p.copy(id = it.id) } ?: p }
-        if (merged == existing) return
-        _backends.value = merged
-        container.backends.save(merged)
+        if (merged != existing) {
+            _backends.value = merged
+            container.backends.save(merged)
+        }
 
+        // Follow the panel's active backend; without one, keep the current selection if it
+        // still exists, otherwise fall back to the first backend.
+        val desired = active?.let { a -> merged.firstOrNull { it.identity() == a.identity() } }
+            ?: merged.firstOrNull { it.id == _current.value?.id }
+            ?: merged.first()
         val current = _current.value
-        val resolved = merged.firstOrNull { it.id == current?.id } ?: merged.first()
-        if (current?.id != resolved.id) selectBackend(resolved) else _current.value = resolved
+        if (current?.id != desired.id) {
+            selectBackend(desired)
+        } else if (current != desired) {
+            _current.value = desired
+        }
     }
 
     private fun Backend.identity() = "${protocol.lowercase()}://${host.lowercase()}:$port"
 
     fun refreshStatus(backend: Backend) {
+        viewModelScope.launch { probeInto(backend) }
+    }
+
+    /** Probes every stored backend concurrently, so the switcher can show all their latencies. */
+    fun refreshAll() {
         viewModelScope.launch {
-            _probe.value = container.mihomoApi.probe(backend)
+            _backends.value.forEach { backend -> launch { probeInto(backend) } }
         }
     }
 
-    /** Re-probes the current backend: used by the refresh button and opening the switcher. */
+    /** Re-probes the current backend: used by the refresh button. */
     fun refreshCurrent() {
         _current.value?.let { refreshStatus(it) }
+    }
+
+    private suspend fun probeInto(backend: Backend) {
+        val result = container.mihomoApi.probe(backend)
+        _probes.value = _probes.value + (backend.id to result)
+        if (_current.value?.id == backend.id) _probe.value = result
     }
 }

@@ -41,7 +41,7 @@ import com.lumenui.app.ui.theme.LocalGlassColors
 fun BackendsMenuContent(
     backends: List<Backend>,
     currentId: String?,
-    probe: Probe?,
+    probes: Map<String, Probe>,
     onSelect: (Backend) -> Unit,
     onAdd: () -> Unit,
     onEdit: (Backend) -> Unit,
@@ -86,7 +86,7 @@ fun BackendsMenuContent(
             BackendRow(
                 backend = backend,
                 selected = backend.id == currentId,
-                probe = if (backend.id == currentId) probe else null,
+                probe = probes[backend.id],
                 onSelect = { onSelect(backend) },
                 onEdit = { onEdit(backend) },
                 onDelete = { onDelete(backend) }
@@ -121,7 +121,7 @@ private fun BackendRow(
             Modifier
                 .size(9.dp)
                 .clip(CircleShape)
-                .background(probeColor(probe, selected))
+                .background(probeColor(probe))
         )
         Spacer(Modifier.width(12.dp))
         Column(
@@ -179,8 +179,7 @@ private fun RowIconButton(icon: ImageVector, label: String, onClick: () -> Unit)
     }
 }
 
-private fun probeColor(probe: Probe?, selected: Boolean): Color = when {
-    !selected -> Color(0xFF8A94A6)
+private fun probeColor(probe: Probe?): Color = when {
     probe == null -> Color(0xFF8A94A6)
     probe.ok -> Color(0xFF34D399)
     else -> Color(0xFFF87171)

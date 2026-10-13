@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.graphics.Color as AndroidColor
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -73,13 +74,21 @@ fun PanelWebView(
                         isReload: Boolean
                     ) {
                         onCanGoBackChanged(view.canGoBack())
+                        // Switching backends inside the panel is an in-app navigation, so
+                        // re-read its list/active here to keep the app's top bar in sync.
+                        if (url != null && url.startsWith(PanelAssets.ORIGIN)) {
+                            controller.scanPanelBackends()
+                        }
                     }
 
                     override fun onPageFinished(view: WebView, url: String?) {
-                        // Pull zashboard's own backend list whenever the panel (re)loads,
-                        // so backends added inside the panel show up in the app switcher.
+                        // Pull zashboard's own backend list whenever the panel (re)loads, so
+                        // backends added inside the panel show up in the app switcher, and let
+                        // the app apply its active backend from here on out.
                         if (url != null && url.startsWith(PanelAssets.ORIGIN)) {
+                            controller.watchActiveBackend()
                             controller.scanPanelBackends()
+                            controller.notifyPanelReady()
                         }
                     }
                 }
@@ -88,13 +97,22 @@ fun PanelWebView(
                     override fun onProgressChanged(view: WebView?, newProgress: Int) {
                         onLoadingChanged(newProgress < 100)
                     }
+
+                    override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                        // The injected localStorage tap noticed an in-panel backend switch.
+                        if (msg.message() == PanelAssets.ACTIVE_WATCH_SENTINEL) {
+                            controller.scanPanelBackends()
+                            return true
+                        }
+                        return false
+                    }
                 }
 
                 controller.webView = this
             }
         },
         onRelease = { view ->
-            if (controller.webView === view) controller.webView = null
+            controller.detach(view)
             view.destroy()
         }
     )

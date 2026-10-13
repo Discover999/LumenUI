@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +45,7 @@ import com.lumenui.app.ui.components.GlassMenuItem
 import com.lumenui.app.ui.components.PanelWebView
 import com.lumenui.app.ui.components.SetupScreen
 import com.lumenui.app.ui.theme.LocalGlassColors
+import com.lumenui.app.web.PanelAssets
 import com.lumenui.app.web.PanelController
 import com.lumenui.app.web.PanelUrls
 import androidx.compose.ui.platform.LocalContext
@@ -66,12 +68,20 @@ fun MainScreen() {
     val backends by viewModel.backends.collectAsStateWithLifecycle()
     val current by viewModel.current.collectAsStateWithLifecycle()
     val probe by viewModel.probe.collectAsStateWithLifecycle()
+    val probes by viewModel.probes.collectAsStateWithLifecycle()
 
     val controller = remember { PanelController() }
     val scope = rememberCoroutineScope()
+    val latestCurrent by rememberUpdatedState(current)
     DisposableEffect(controller) {
-        controller.onPanelBackends = { viewModel.syncFromPanel(it) }
-        onDispose { controller.onPanelBackends = null }
+        controller.onPanelBackends = { list, active -> viewModel.syncFromPanel(list, active) }
+        // The panel page finished loading: hand it the active backend (no-op after the
+        // first time) so zashboard connects without the secret ever touching a URL.
+        controller.onPanelReady = { latestCurrent?.let(controller::connect) }
+        onDispose {
+            controller.onPanelBackends = null
+            controller.onPanelReady = null
+        }
     }
     var loading by remember { mutableStateOf(false) }
     var canGoBack by remember { mutableStateOf(false) }
@@ -127,6 +137,12 @@ fun MainScreen() {
         connectivityRunning = false
     }
 
+    // Hand the selected backend to the panel whenever it changes. Applied at most once
+    // per backend; the initial application happens via onPanelReady once the page loads.
+    LaunchedEffect(current?.id) {
+        current?.let(controller::connect)
+    }
+
     BackHandler(enabled = showConnectivity || showDnsLeak || canGoBack) {
         when {
             showConnectivity -> showConnectivity = false
@@ -156,22 +172,22 @@ fun MainScreen() {
                 FrostedTopBar(
                     title = backend.displayName,
                     online = probe?.ok,
-                    onHome = { controller.load(PanelUrls.setupUrl(backend)) },
+                    onHome = { controller.load(PanelAssets.INDEX_URL) },
                     onRefresh = {
                         controller.reload()
                         viewModel.refreshCurrent()
                     },
                     onIp = { controller.load(IP_CHECK_URL) },
                     titleMenu = { dismiss ->
-                        // Re-scan the panel and re-probe the backend each time the switcher opens.
+                        // Re-scan the panel and probe *every* backend each time the switcher opens.
                         LaunchedEffect(Unit) {
                             controller.scanPanelBackends()
-                            viewModel.refreshCurrent()
+                            viewModel.refreshAll()
                         }
                         BackendsMenuContent(
                             backends = backends,
                             currentId = current?.id,
-                            probe = probe,
+                            probes = probes,
                             onSelect = {
                                 viewModel.selectBackend(it)
                                 dismiss()
@@ -213,7 +229,7 @@ fun MainScreen() {
                 )
                 Box(Modifier.fillMaxSize()) {
                     PanelWebView(
-                        url = PanelUrls.setupUrl(backend),
+                        url = PanelAssets.INDEX_URL,
                         controller = controller,
                         onLoadingChanged = { loading = it },
                         onCanGoBackChanged = { canGoBack = it },

@@ -8,7 +8,6 @@ import android.webkit.WebView
 import androidx.webkit.WebViewAssetLoader
 import com.lumenui.app.data.Backend
 import java.io.IOException
-import java.net.URLEncoder
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -29,36 +28,74 @@ object PanelAssets {
     const val ORIGIN = "$SCHEME://$DOMAIN$PREFIX"
 
     /**
-     * Reads zashboard's own backend list out of its localStorage. zashboard keeps the
-     * saved backends under `setup/api-list` (a JSON array) and the active one under
-     * `setup/active-uuid`; these live in the WebView origin, separate from the app's
-     * SharedPreferences list. Returns `{ok, list}`, where `list` is a normalised array
-     * (port coerced to a number). `ok` is false if the read failed, so callers can tell
-     * "no backends" apart from "could not read".
+     * Reads zashboard's own backend list and active selection out of its localStorage.
+     * zashboard keeps the saved backends under `setup/api-list` (a JSON array) and the
+     * active one under `setup/active-uuid`; these live in the WebView origin, separate
+     * from the app's SharedPreferences list. Returns `{ok, list, active}`, where `list`
+     * and `active` are normalised entries (port coerced to a number) and `active` is the
+     * entry `setup/active-uuid` points at (or null). `ok` is false if the read failed, so
+     * callers can tell "no backends" apart from "could not read".
      */
     val SCAN_BACKENDS_JS = """
         (function () {
           try {
-            var raw = localStorage.getItem('setup/api-list');
-            var arr = raw ? JSON.parse(raw) : [];
-            var out = [];
-            for (var i = 0; i < arr.length; i++) {
-              var b = arr[i] || {};
+            var norm = function (b) {
               var port = parseInt(b.port, 10);
-              if (!b.host || !isFinite(port) || port <= 0) continue;
-              out.push({
+              if (!b.host || !isFinite(port) || port <= 0) return null;
+              return {
                 protocol: String(b.protocol || 'http'),
                 host: String(b.host),
                 port: port,
                 secret: String(b.password || b.secret || ''),
                 path: String(b.secondaryPath || ''),
                 label: String(b.label || '')
-              });
+              };
+            };
+            var raw = localStorage.getItem('setup/api-list');
+            var arr = raw ? JSON.parse(raw) : [];
+            var out = [];
+            for (var i = 0; i < arr.length; i++) {
+              var n = norm(arr[i] || {});
+              if (n) out.push(n);
             }
-            return JSON.stringify({ ok: true, list: out });
+            var activeUuid = localStorage.getItem('setup/active-uuid') || '';
+            var active = null;
+            for (var k = 0; k < arr.length; k++) {
+              if (String((arr[k] || {}).uuid || '') === activeUuid) { active = norm(arr[k]); break; }
+            }
+            return JSON.stringify({ ok: true, list: out, active: active });
           } catch (e) {
-            return JSON.stringify({ ok: false, list: [] });
+            return JSON.stringify({ ok: false, list: [], active: null });
           }
+        })()
+    """.trimIndent()
+
+    /**
+     * Console sentinel emitted by [WATCH_ACTIVE_BACKEND_JS] when the panel's active backend
+     * changes; PanelWebView turns it back into a scan.
+     */
+    const val ACTIVE_WATCH_SENTINEL = "__lumen_active_backend_changed__"
+
+    /**
+     * Taps `localStorage` so the app learns when zashboard switches the active backend *in
+     * place*. zashboard changes `setup/active-uuid` without navigating or reloading, so no
+     * page/history event fires; the tap emits [ACTIVE_WATCH_SENTINEL] on the console instead.
+     * Idempotent (guarded by a window flag), so re-injecting after a reload is harmless.
+     */
+    val WATCH_ACTIVE_BACKEND_JS = """
+        (function () {
+          try {
+            if (window.__lumenActiveWatch) return;
+            window.__lumenActiveWatch = true;
+            var orig = Storage.prototype.setItem;
+            Storage.prototype.setItem = function (key, value) {
+              var changed = false;
+              try { changed = key === 'setup/active-uuid' && this.getItem(key) !== String(value); } catch (e) {}
+              var r = orig.apply(this, arguments);
+              if (changed) { try { console.log('$ACTIVE_WATCH_SENTINEL'); } catch (e) {} }
+              return r;
+            };
+          } catch (e) {}
         })()
     """.trimIndent()
 
@@ -92,7 +129,7 @@ object PanelAssets {
                 uuid: (p && p.uuid) ? p.uuid : (crypto.randomUUID ? crypto.randomUUID() : ('' + Date.now() + Math.random())),
                 type: (p && p.type) ? p.type : 'clash',
                 protocol: b.protocol || 'http',
-                secondaryPath: b.secondaryPath || '',
+                secondaryPath: b.path || '',
                 host: String(b.host),
                 port: parseInt(b.port, 10),
                 password: b.secret || '',
@@ -109,6 +146,57 @@ object PanelAssets {
             return out.length;
           } catch (e) {
             return -1;
+          }
+        })()
+    """.trimIndent()
+
+    /**
+     * Upserts a single backend — [payloadBase64] is the base64 of a JSON object
+     * `{protocol,host,port,secret,path,label}` — into the panel's `setup/api-list`, then
+     * points `setup/active-uuid` at it. zashboard reads both keys on boot, so callers
+     * reload afterwards. Keeping the secret here instead of in a `#/setup?secret=...`
+     * hash is the point: it never lands in a WebView URL or history entry.
+     */
+    fun activateBackendJs(payloadBase64: String): String = """
+        (function () {
+          try {
+            var bin = atob('$payloadBase64');
+            var bytes = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            var b = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+            var key = String(b.host || '').toLowerCase() + ':' + parseInt(b.port, 10);
+            var raw = localStorage.getItem('setup/api-list');
+            var list = raw ? JSON.parse(raw) : [];
+            var found = null;
+            for (var j = 0; j < list.length; j++) {
+              if ((String(list[j].host || '').toLowerCase() + ':' + parseInt(list[j].port, 10)) === key) { found = list[j]; break; }
+            }
+            if (found) {
+              found.type = 'clash';
+              found.protocol = b.protocol || found.protocol || 'http';
+              found.secondaryPath = b.path || '';
+              found.password = b.secret || '';
+              found.label = b.label || found.label || '';
+            } else {
+              found = {
+                uuid: (crypto.randomUUID ? crypto.randomUUID() : ('' + Date.now() + Math.random())),
+                type: 'clash',
+                protocol: b.protocol || 'http',
+                secondaryPath: b.path || '',
+                host: String(b.host),
+                port: parseInt(b.port, 10),
+                password: b.secret || '',
+                label: b.label || '',
+                disableUpgradeCore: false,
+                disableTunMode: false
+              };
+              list.push(found);
+            }
+            localStorage.setItem('setup/api-list', JSON.stringify(list));
+            localStorage.setItem('setup/active-uuid', found.uuid);
+            return 'ok';
+          } catch (e) {
+            return 'err';
           }
         })()
     """.trimIndent()
@@ -163,34 +251,25 @@ class PanelAssetLoader(private val context: Context) {
     }
 }
 
-/** Builds the hash-route URL that hands the connection settings to zashboard. */
+/** Builds URLs the app hands to the WebView or an external browser. */
 object PanelUrls {
-    fun setupUrl(backend: Backend): String {
-        val params = buildString {
-            append("protocol=").append(encode(backend.protocol))
-            append("&hostname=").append(encode(backend.host))
-            append("&port=").append(backend.port)
-            if (backend.secret.isNotBlank()) append("&secret=").append(encode(backend.secret))
-            if (backend.secondaryPath.isNotBlank()) {
-                append("&secondaryPath=").append(encode(backend.secondaryPath))
-            }
-        }
-        return "${PanelAssets.INDEX_URL}#/setup?$params"
-    }
-
     // The bundled panel is only reachable inside the app (virtual host), so "open in
     // browser" targets the backend's own web UI (mihomo `external-ui`), served at /ui/.
     fun uiUrl(backend: Backend): String = "${backend.baseUrl}/ui/"
-
-    private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
 }
 
 /** Imperative handle over the live WebView so the Compose UI can drive it. */
 class PanelController {
     internal var webView: WebView? = null
 
-    /** Set by the UI; invoked with the backends found inside the panel. */
-    var onPanelBackends: ((List<Backend>) -> Unit)? = null
+    /** Set by the UI; invoked with the panel's backend list and the one it has active. */
+    var onPanelBackends: ((List<Backend>, Backend?) -> Unit)? = null
+
+    /** Set by the UI; invoked once the panel page has finished loading. */
+    var onPanelReady: (() -> Unit)? = null
+
+    /** Identity of the backend already handed to the panel, so it is applied at most once. */
+    private var connectedKey: String? = null
 
     fun load(url: String) {
         webView?.loadUrl(url)
@@ -200,13 +279,66 @@ class PanelController {
         webView?.reload()
     }
 
-    /** Asks the panel for its own backend list and reports it via [onPanelBackends]. */
+    /** Called by the WebView when the panel page finishes loading. */
+    fun notifyPanelReady() {
+        onPanelReady?.invoke()
+    }
+
+    /**
+     * Detaches [view] when the WebView is released. Forgets the applied backend so that a
+     * WebView created later (e.g. after the app fell back to its own setup screen) is handed
+     * the active backend again instead of being skipped.
+     */
+    fun detach(view: WebView) {
+        if (webView === view) {
+            webView = null
+            connectedKey = null
+        }
+    }
+
+    /**
+     * Hands [backend] to the panel by writing it into the panel's localStorage and making
+     * it active, then reloading so zashboard connects to it. The secret travels through
+     * injected JS only — never through a WebView URL. A no-op when the panel is not on its
+     * own page yet (it will be applied from [onPanelReady]) or when already applied.
+     */
+    fun connect(backend: Backend) {
+        val view = webView ?: return
+        if (!isPanelVisible(view)) return
+        val key = backend.connectKey()
+        if (key == connectedKey) return
+        connectedKey = key
+        val payload = Base64.encodeToString(
+            PanelBackendsJson.encodeOne(backend).toByteArray(Charsets.UTF_8),
+            Base64.NO_WRAP
+        )
+        view.evaluateJavascript(PanelAssets.activateBackendJs(payload)) { result ->
+            // Navigate to the panel home (no hash) rather than reload(): zashboard may have
+            // bounced to its "#/setup" route while it had no backend, and reloading that hash
+            // would leave it stuck on the setup page even though a backend is now stored.
+            if (result?.contains("ok") == true) view.loadUrl(PanelAssets.INDEX_URL)
+        }
+    }
+
+    /** Installs the localStorage tap that reports in-panel backend switches. */
+    fun watchActiveBackend() {
+        val view = webView ?: return
+        if (!isPanelVisible(view)) return
+        view.evaluateJavascript(PanelAssets.WATCH_ACTIVE_BACKEND_JS, null)
+    }
+
+    /** Asks the panel for its own backend list and active selection; reports via [onPanelBackends]. */
     fun scanPanelBackends() {
         val view = webView ?: return
         if (!isPanelVisible(view)) return
         view.evaluateJavascript(PanelAssets.SCAN_BACKENDS_JS) { result ->
             val scan = PanelBackendsJson.parseScan(result)
-            if (scan.ok) onPanelBackends?.invoke(scan.list)
+            if (scan.ok) {
+                // The panel is already showing this backend; remember it so a follow-up
+                // connect() for the same one is a no-op (no re-drive, no extra reload).
+                scan.active?.let { connectedKey = it.connectKey() }
+                onPanelBackends?.invoke(scan.list, scan.active)
+            }
         }
     }
 
@@ -259,22 +391,30 @@ private object PanelBackendsJson {
     )
 
     @Serializable
-    private data class Scan(val ok: Boolean = false, val list: List<Dto> = emptyList())
+    private data class Scan(
+        val ok: Boolean = false,
+        val list: List<Dto> = emptyList(),
+        val active: Dto? = null
+    )
 
-    data class ScanResult(val ok: Boolean, val list: List<Backend>)
+    data class ScanResult(val ok: Boolean, val list: List<Backend>, val active: Backend?)
 
     fun parseScan(evaluateResult: String?): ScanResult {
-        val empty = ScanResult(false, emptyList())
+        val empty = ScanResult(false, emptyList(), null)
         if (evaluateResult.isNullOrBlank() || evaluateResult == "null") return empty
         // evaluateJavascript hands the JS string back as a JSON-encoded string literal.
         val inner = runCatching { json.decodeFromString<String>(evaluateResult) }.getOrNull()
             ?: return empty
         val scan = runCatching { json.decodeFromString<Scan>(inner) }.getOrNull() ?: return empty
-        return ScanResult(scan.ok, scan.list.mapNotNull { it.toBackend() })
+        return ScanResult(scan.ok, scan.list.mapNotNull { it.toBackend() }, scan.active?.toBackend())
     }
 
     fun encode(backends: List<Backend>): String = json.encodeToString(
         backends.map { Dto(it.protocol, it.host, it.port, it.secret, it.secondaryPath, it.name) }
+    )
+
+    fun encodeOne(backend: Backend): String = json.encodeToString(
+        Dto(backend.protocol, backend.host, backend.port, backend.secret, backend.secondaryPath, backend.name)
     )
 
     private fun Dto.toBackend(): Backend? {
@@ -289,3 +429,6 @@ private object PanelBackendsJson {
         )
     }
 }
+
+/** In-memory identity used to avoid re-applying the same backend to the panel twice. */
+private fun Backend.connectKey(): String = "$protocol://$host:$port|$secondaryPath|$secret"
