@@ -52,6 +52,9 @@ fun BackendEditDialog(
     var protocol by remember { mutableStateOf(initial?.protocol ?: "http") }
     var secondaryPath by remember { mutableStateOf(initial?.secondaryPath.orEmpty()) }
 
+    val portValid = port.toIntOrNull()?.let { it in 1..65535 } == true
+    val canSave = host.isNotBlank() && portValid
+
     GlassDialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -66,7 +69,7 @@ fun BackendEditDialog(
                 fontSize = 17.sp,
                 fontWeight = FontWeight.SemiBold
             )
-            GlassField(name, { name = it }, "名称（可选）")
+            GlassField(name, { name = it.take(NAME_MAX) }, "名称（可选）")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("协议", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(12.dp))
@@ -74,20 +77,31 @@ fun BackendEditDialog(
                 Spacer(Modifier.width(8.dp))
                 ProtocolChip("https", protocol == "https") { protocol = "https" }
             }
-            GlassField(host, { host = it }, "地址 / IP")
+            GlassField(host, { host = it.filter(::isHostChar).take(HOST_MAX) }, "地址 / IP")
             GlassField(
                 value = port,
-                onValueChange = { input -> port = input.filter { it.isDigit() } },
+                onValueChange = { input -> port = input.filter { it.isDigit() }.take(PORT_MAX) },
                 label = "端口",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
-            GlassField(secret, { secret = it }, "密钥 Secret（可选）")
-            GlassField(secondaryPath, { secondaryPath = it }, "二级路径（可选）")
+            if (port.isNotEmpty() && !portValid) {
+                Text(
+                    "端口需在 1–65535 之间",
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp
+                )
+            }
+            GlassField(secret, { secret = it.take(SECRET_MAX) }, "密钥 Secret（可选）")
+            GlassField(
+                secondaryPath,
+                { secondaryPath = it.filter { c -> !c.isWhitespace() }.take(PATH_MAX) },
+                "二级路径（可选）"
+            )
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("取消") }
                 TextButton(
-                    enabled = host.isNotBlank(),
+                    enabled = canSave,
                     onClick = {
                         onSave(
                             Backend(
@@ -176,3 +190,13 @@ private fun ProtocolChip(label: String, selected: Boolean, onClick: () -> Unit) 
             .padding(horizontal = 14.dp, vertical = 7.dp)
     )
 }
+
+private const val NAME_MAX = 16
+private const val HOST_MAX = 253
+private const val PORT_MAX = 5
+private const val SECRET_MAX = 256
+private const val PATH_MAX = 128
+
+/** Host characters: hostname letters/digits/'.'/'-', IPv4 digits/'.', or IPv6 hex + ':'/'.'. */
+private fun isHostChar(c: Char): Boolean =
+    c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '.' || c == '-' || c == '_' || c == ':'

@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext HTTP is permitted app-wide on purpose. LumenUI connects to arbitrary,
+  self-hosted mihomo (Clash.Meta) controllers that are commonly reached over plain
+  http/ws at a LAN or loopback address, and a static <domain-config> allow-list cannot
+  enumerate those addresses. The bundled panel origin (http://panel.internal) is served
+  from APK assets. Everything the app talks to on the public internet uses https.
+  This policy is the single source of truth: the redundant android:usesCleartextTraffic
+  manifest flag was removed so the config is not silently overridden.
+-->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
