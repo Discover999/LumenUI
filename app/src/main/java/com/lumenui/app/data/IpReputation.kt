@@ -29,10 +29,15 @@ data class IpReputation(
         }
 }
 
-class IpReputationApi(private val client: OkHttpClient) {
+/** Looks up the reputation of an egress IP. */
+interface IpReputationApi {
+    suspend fun lookup(ip: String): IpReputation?
+}
+
+class HttpIpReputationApi(private val client: OkHttpClient) : IpReputationApi {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    suspend fun lookup(ip: String): IpReputation? = withContext(Dispatchers.IO) {
+    override suspend fun lookup(ip: String): IpReputation? = withContext(Dispatchers.IO) {
         runCatching {
             val request = Request.Builder()
                 .url("http://ip-api.com/json/$ip?fields=status,proxy,hosting,mobile")

@@ -61,6 +61,7 @@ import com.composables.icons.lucide.Boxes
 import com.composables.icons.lucide.Castle
 import com.composables.icons.lucide.CircleAlert
 import com.composables.icons.lucide.CircleCheck
+import com.composables.icons.lucide.CircleMinus
 import com.composables.icons.lucide.CircleX
 import com.composables.icons.lucide.Cloud
 import com.composables.icons.lucide.Compass
@@ -145,6 +146,9 @@ private val OkColor = Color(0xFF6BD08A)
 private val RestrictedColor = Color(0xFFE5B567)
 private val FailedColor = Color(0xFFE0685F)
 private val MutedColor = Color(0xFF9BA9BE)
+
+/** A reachable target averaging at least this many ms is flagged amber instead of green. */
+private const val SLOW_LATENCY_MS = 700L
 
 /** Status-row height, in sp so it scales with the font scale like the text it holds. */
 private val StatusRowHeight = 22.sp
@@ -333,7 +337,7 @@ private fun PlatformCard(
                 }
                 Text(
                     text = region,
-                    color = MutedColor,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -368,7 +372,7 @@ private fun PlatformCard(
                     ) {
                         Text(
                             text = displayIp(ip),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.sp,
                             lineHeight = IpRowHeight,
                             maxLines = 1,
@@ -458,17 +462,18 @@ private fun StatusRow(result: ProbeResult?, active: Boolean, avgLatency: Long?, 
                     strokeWidth = 1.5.dp
                 )
             } else {
-                Text("—", color = MutedColor, fontSize = 13.sp, lineHeight = StatusRowHeight)
+                Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = StatusRowHeight)
             }
             // While the status is still pending, show the running sample average so it fills in
             // dot by dot alongside the latency row below.
             if (avgLatency != null) {
                 Spacer(Modifier.weight(1f))
-                Text("${avgLatency}ms", color = MutedColor, fontSize = 12.sp)
+                Text("${avgLatency}ms", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
             }
             return@Row
         }
-        val (icon, color, label) = statusVisual(result.status)
+        val ms = avgLatency ?: result.latencyMs
+        val (icon, color, label) = statusVisual(result.status, ms)
         Box(
             Modifier
                 .size(18.dp)
@@ -484,8 +489,7 @@ private fun StatusRow(result: ProbeResult?, active: Boolean, avgLatency: Long?, 
         if (result.status == ProbeStatus.FAILED) {
             RetryButton(onRetry)
         } else {
-            val ms = avgLatency ?: result.latencyMs
-            if (ms >= 0) Text("${ms}ms", color = MutedColor, fontSize = 12.sp)
+            if (ms >= 0) Text("${ms}ms", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
         }
     }
 }
@@ -530,8 +534,13 @@ private fun ReputationPill(rep: IpReputation) {
     }
 }
 
-private fun statusVisual(status: ProbeStatus): Triple<ImageVector, Color, String> = when (status) {
-    ProbeStatus.UNLOCKED -> Triple(Lucide.CircleCheck, OkColor, "可用")
+private fun statusVisual(status: ProbeStatus, latencyMs: Long?): Triple<ImageVector, Color, String> = when (status) {
+    // Reachable but slow reads as a "dash" circle in amber, distinct from a fast green check.
+    ProbeStatus.UNLOCKED -> if (latencyMs != null && latencyMs >= SLOW_LATENCY_MS) {
+        Triple(Lucide.CircleMinus, RestrictedColor, "可用")
+    } else {
+        Triple(Lucide.CircleCheck, OkColor, "可用")
+    }
     ProbeStatus.LIMITED, ProbeStatus.FLAGGED -> Triple(Lucide.CircleAlert, RestrictedColor, "受限")
     ProbeStatus.BLOCKED, ProbeStatus.FAILED -> Triple(Lucide.CircleX, FailedColor, "不可用")
 }

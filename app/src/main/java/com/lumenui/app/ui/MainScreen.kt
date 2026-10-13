@@ -14,7 +14,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -27,8 +26,6 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.lumenui.app.LumenApp
 import com.lumenui.app.data.Backend
 import com.lumenui.app.data.ConnectivityTargets
-import com.lumenui.app.data.IpReputation
-import com.lumenui.app.data.ProbeResult
 import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Globe
 import com.composables.icons.lucide.Info
@@ -51,10 +48,6 @@ import com.lumenui.app.web.PanelUrls
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 
 @Composable
 fun MainScreen() {
@@ -69,9 +62,10 @@ fun MainScreen() {
     val current by viewModel.current.collectAsStateWithLifecycle()
     val probe by viewModel.probe.collectAsStateWithLifecycle()
     val probes by viewModel.probes.collectAsStateWithLifecycle()
+    val connectivity by viewModel.connectivity.collectAsStateWithLifecycle()
+    val selectedProbes by viewModel.connectivityTargets.collectAsStateWithLifecycle()
 
     val controller = remember { PanelController() }
-    val scope = rememberCoroutineScope()
     val latestCurrent by rememberUpdatedState(current)
     DisposableEffect(controller) {
         controller.onPanelBackends = { list, active -> viewModel.syncFromPanel(list, active) }
@@ -89,53 +83,8 @@ fun MainScreen() {
     var showAbout by remember { mutableStateOf(false) }
     var showConnectivity by remember { mutableStateOf(false) }
     var showDnsLeak by remember { mutableStateOf(false) }
-    var connectivityRunning by remember { mutableStateOf(false) }
-    var connectivityResults by remember { mutableStateOf<Map<String, ProbeResult>>(emptyMap()) }
-    var reputationByIp by remember { mutableStateOf<Map<String, IpReputation>>(emptyMap()) }
-    var samplesByTarget by remember { mutableStateOf<Map<String, List<Long>>>(emptyMap()) }
-    var connectivityRunId by remember { mutableStateOf(0) }
-    var selectedProbes by remember { mutableStateOf(app.container.settings.connectivityTargets) }
     var showProbeSettings by remember { mutableStateOf(false) }
-    var retrying by remember { mutableStateOf<Set<String>>(emptySet()) }
     var editing by remember { mutableStateOf<Backend?>(null) }
-
-    LaunchedEffect(showConnectivity, connectivityRunId) {
-        // Nothing runs until the user taps 开始测试 / 重新测试 (runId 0 is the idle state).
-        if (!showConnectivity || connectivityRunId == 0) return@LaunchedEffect
-        connectivityRunning = true
-        connectivityResults = emptyMap()
-        reputationByIp = emptyMap()
-        samplesByTarget = emptyMap()
-        // Reputation is looked up once per distinct egress IP, kicked off the moment a
-        // probe yields an IP (not after all probes) so it overlaps the remaining work.
-        // Everything here runs on the composition's Main dispatcher, so the plain set
-        // needs no synchronization; ip-api.com's free tier allows only ~45 requests/min.
-        val started = mutableSetOf<String>()
-        val targets = ConnectivityTargets.all.filter { it.name in selectedProbes }
-        coroutineScope {
-            val gate = Semaphore(PROBE_CONCURRENCY)
-            targets.forEach { target ->
-                launch {
-                    gate.withPermit {
-                        val result = app.container.connectivity.probe(target) { ms ->
-                            samplesByTarget = samplesByTarget +
-                                (target.name to (samplesByTarget[target.name].orEmpty() + ms))
-                        }
-                        connectivityResults = connectivityResults + (target.name to result)
-                        result.ip?.let { ip ->
-                            if (started.add(ip)) {
-                                launch {
-                                    val rep = app.container.ipReputation.lookup(ip)
-                                    if (rep != null) reputationByIp = reputationByIp + (ip to rep)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        connectivityRunning = false
-    }
 
     // Hand the selected backend to the panel whenever it changes. Applied at most once
     // per backend; the initial application happens via onPanelReady once the page loads.
@@ -274,52 +223,24 @@ fun MainScreen() {
         ) {
             ConnectivityScreen(
                 targets = ConnectivityTargets.all.filter { it.name in selectedProbes },
-                running = connectivityRunning,
-                retrying = retrying,
-                results = connectivityResults,
-                samples = samplesByTarget,
-                reputation = reputationByIp,
+                running = connectivity.running,
+                retrying = connectivity.retrying,
+                results = connectivity.results,
+                samples = connectivity.samples,
+                reputation = connectivity.reputation,
                 onBack = { showConnectivity = false },
-                onRerun = { connectivityRunId++ },
+                onRerun = { viewModel.runConnectivity() },
                 onSettings = { showProbeSettings = true },
-                onRetry = { target ->
-                    retrying = retrying + target.name
-                    samplesByTarget = samplesByTarget - target.name
-                    scope.launch {
-                        val result = app.container.connectivity.probe(target) { ms ->
-                            samplesByTarget = samplesByTarget +
-                                (target.name to (samplesByTarget[target.name].orEmpty() + ms))
-                        }
-                        connectivityResults = connectivityResults + (target.name to result)
-                        result.ip?.let { ip ->
-                            if (ip !in reputationByIp) {
-                                val rep = app.container.ipReputation.lookup(ip)
-                                if (rep != null) reputationByIp = reputationByIp + (ip to rep)
-                            }
-                        }
-                        retrying = retrying - target.name
-                    }
-                }
+                onRetry = { target -> viewModel.retryConnectivity(target) }
             )
         }
 
         if (showProbeSettings) {
             ConnectivitySettingsDialog(
                 selected = selectedProbes,
-                onToggle = { name ->
-                    val next = if (name in selectedProbes) selectedProbes - name else selectedProbes + name
-                    selectedProbes = next
-                    app.container.settings.connectivityTargets = next
-                },
-                onSelectAll = {
-                    val all = ConnectivityTargets.all.map { it.name }.toSet()
-                    selectedProbes = all
-                    app.container.settings.connectivityTargets = all
-                },
-                onSelectDefault = {
-                    selectedProbes = ConnectivityTargets.defaultSelected
-                    app.container.settings.connectivityTargets = ConnectivityTargets.defaultSelected
-                },
+                onToggle = { viewModel.toggleConnectivityTarget(it) },
+                onSelectAll = { viewModel.selectAllConnectivityTargets() },
+                onSelectDefault = { viewModel.selectDefaultConnectivityTargets() },
                 onDismiss = { showProbeSettings = false }
             )
         }
@@ -343,4 +264,3 @@ fun MainScreen() {
 }
 
 private const val IP_CHECK_URL = "https://ip.skk.moe"
-private const val PROBE_CONCURRENCY = 8

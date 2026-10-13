@@ -143,7 +143,12 @@ object ConnectivityTargets {
     )
 }
 
-class ConnectivityProbe(base: OkHttpClient) {
+/** Probes connectivity targets; implementations report each latency sample as it lands. */
+interface ConnectivityProbe {
+    suspend fun probe(target: ProbeTarget, onSample: ((Long) -> Unit)? = null): ProbeResult
+}
+
+class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
 
     private val followClient: OkHttpClient = base.newBuilder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -164,9 +169,9 @@ class ConnectivityProbe(base: OkHttpClient) {
         .followRedirects(true)
         .build()
 
-    suspend fun probe(
+    override suspend fun probe(
         target: ProbeTarget,
-        onSample: ((Long) -> Unit)? = null
+        onSample: ((Long) -> Unit)?
     ): ProbeResult = withContext(Dispatchers.IO) {
         val start = System.currentTimeMillis()
         val result = runCatching { check(target, start) }.getOrElse {

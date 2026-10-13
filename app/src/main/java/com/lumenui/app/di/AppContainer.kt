@@ -4,6 +4,8 @@ import android.content.Context
 import com.lumenui.app.data.BackendRepository
 import com.lumenui.app.data.ConnectivityProbe
 import com.lumenui.app.data.DnsLeakProbe
+import com.lumenui.app.data.HttpConnectivityProbe
+import com.lumenui.app.data.HttpIpReputationApi
 import com.lumenui.app.data.IpReputationApi
 import com.lumenui.app.data.MihomoApi
 import com.lumenui.app.data.SettingsRepository
@@ -22,7 +24,7 @@ class AppContainer(context: Context) {
         .build()
 
     val mihomoApi = MihomoApi(httpClient)
-    val connectivity = ConnectivityProbe(httpClient)
-    val ipReputation = IpReputationApi(httpClient)
+    val connectivity: ConnectivityProbe = HttpConnectivityProbe(httpClient)
+    val ipReputation: IpReputationApi = HttpIpReputationApi(httpClient)
     val dnsLeak = DnsLeakProbe(httpClient)
 }

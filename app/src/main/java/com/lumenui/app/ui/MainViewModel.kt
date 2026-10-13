@@ -3,7 +3,9 @@ package com.lumenui.app.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lumenui.app.data.Backend
+import com.lumenui.app.data.ConnectivityTargets
 import com.lumenui.app.data.Probe
+import com.lumenui.app.data.ProbeTarget
 import com.lumenui.app.di.AppContainer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +26,15 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     /** Latest probe per backend id, so the switcher can show every backend's latency at once. */
     private val _probes = MutableStateFlow<Map<String, Probe>>(emptyMap())
     val probes: StateFlow<Map<String, Probe>> = _probes.asStateFlow()
+
+    private val connectivityRunner =
+        ConnectivityRunner(container.connectivity, container.ipReputation, viewModelScope)
+
+    /** State of the connectivity page, driven by [connectivityRunner]. */
+    val connectivity: StateFlow<ConnectivityState> = connectivityRunner.state
+
+    private val _connectivityTargets = MutableStateFlow(container.settings.connectivityTargets)
+    val connectivityTargets: StateFlow<Set<String>> = _connectivityTargets.asStateFlow()
 
     init {
         _current.value?.let { refreshStatus(it) }
@@ -125,5 +136,37 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         val result = container.mihomoApi.probe(backend)
         _probes.value = _probes.value + (backend.id to result)
         if (_current.value?.id == backend.id) _probe.value = result
+    }
+
+    // --- Connectivity page ---------------------------------------------------
+
+    /** Starts a fresh run over the currently selected targets. */
+    fun runConnectivity() {
+        connectivityRunner.run(ConnectivityTargets.all.filter { it.name in _connectivityTargets.value })
+    }
+
+    /** Re-probes a single target and replaces its row once done. */
+    fun retryConnectivity(target: ProbeTarget) {
+        connectivityRunner.retry(target)
+    }
+
+    fun toggleConnectivityTarget(name: String) {
+        setConnectivityTargets(
+            if (name in _connectivityTargets.value) _connectivityTargets.value - name
+            else _connectivityTargets.value + name
+        )
+    }
+
+    fun selectAllConnectivityTargets() {
+        setConnectivityTargets(ConnectivityTargets.all.map { it.name }.toSet())
+    }
+
+    fun selectDefaultConnectivityTargets() {
+        setConnectivityTargets(ConnectivityTargets.defaultSelected)
+    }
+
+    private fun setConnectivityTargets(next: Set<String>) {
+        _connectivityTargets.value = next
+        container.settings.connectivityTargets = next
     }
 }

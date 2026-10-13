@@ -30,6 +30,7 @@ androidx-webkit = { module = "androidx.webkit:webkit", version.ref = "webkit" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 composables-icons-lucide = { module = "com.composables:icons-lucide-cmp", version.ref = "lucide" }
 flagkit = { module = "dev.carlsen.flagkit:flagkit", version.ref = "flagkit" }
 simple-icons = { module = "moe.tlaster.compose.icons:simple-icons", version.ref = "simpleIcons" }
