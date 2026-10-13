@@ -519,7 +519,7 @@ class ConnectivityProbe(base: OkHttpClient) {
             body.contains("__CF\$cv\$params")
     }
 
-    private companion object {
+    internal companion object {
         /** How many latency samples run at once. */
         const val SAMPLE_CONCURRENCY = 4
 

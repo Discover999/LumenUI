@@ -101,7 +101,7 @@ class DnsLeakProbe(private val client: OkHttpClient) {
     }
 
     /** Parses bash.ws' result table: one `<div class="tr">` per resolver, plus a verdict line. */
-    private fun parse(html: String): DnsLeakResult {
+    internal fun parse(html: String): DnsLeakResult {
         val resolvers = html.split("<div class=\"tr\">").drop(1).mapNotNull { row ->
             val ip = Host.find(row)?.groupValues?.get(1) ?: return@mapNotNull null
             DnsLeakNode(

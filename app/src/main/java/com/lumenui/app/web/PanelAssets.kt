@@ -377,7 +377,7 @@ class PanelController {
 }
 
 /** Parses the raw result of [PanelAssets.SCAN_BACKENDS_JS] into app [Backend]s. */
-private object PanelBackendsJson {
+internal object PanelBackendsJson {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     @Serializable
