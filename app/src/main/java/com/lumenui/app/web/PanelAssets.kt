@@ -5,8 +5,10 @@ import android.net.Uri
 import android.util.Base64
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import androidx.core.net.toUri
 import androidx.webkit.WebViewAssetLoader
 import com.lumenui.app.data.Backend
+import com.lumenui.app.util.AppLog
 import java.io.IOException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -371,7 +373,7 @@ class PanelController {
 
     fun openInBrowser(url: String) {
         webView?.context?.startActivity(
-            android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url))
+            android.content.Intent(android.content.Intent.ACTION_VIEW, url.toUri())
         )
     }
 }
@@ -404,8 +406,15 @@ internal object PanelBackendsJson {
         if (evaluateResult.isNullOrBlank() || evaluateResult == "null") return empty
         // evaluateJavascript hands the JS string back as a JSON-encoded string literal.
         val inner = runCatching { json.decodeFromString<String>(evaluateResult) }.getOrNull()
-            ?: return empty
-        val scan = runCatching { json.decodeFromString<Scan>(inner) }.getOrNull() ?: return empty
+        if (inner == null) {
+            AppLog.w("Panel scan returned a non-string payload")
+            return empty
+        }
+        val scan = runCatching { json.decodeFromString<Scan>(inner) }.getOrNull()
+        if (scan == null) {
+            AppLog.w("Panel scan payload could not be parsed")
+            return empty
+        }
         return ScanResult(scan.ok, scan.list.mapNotNull { it.toBackend() }, scan.active?.toBackend())
     }
 

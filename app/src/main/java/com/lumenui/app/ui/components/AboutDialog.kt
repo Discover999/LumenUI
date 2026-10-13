@@ -1,7 +1,7 @@
 package com.lumenui.app.ui.components
 
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -97,7 +97,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
                     .background(glass.buttonBg)
                     .clickable {
                         runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_URL)))
+                            context.startActivity(Intent(Intent.ACTION_VIEW, GITHUB_URL.toUri()))
                         }
                     }
                     .padding(horizontal = 12.dp, vertical = 11.dp),

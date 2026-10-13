@@ -1,5 +1,6 @@
 package com.lumenui.app.data
 
+import com.lumenui.app.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -35,6 +36,9 @@ class MihomoApi(private val client: OkHttpClient) {
                 }.getOrNull()
                 Probe(true, latency, version)
             }
-        }.getOrElse { Probe(false, -1) }
+        }.getOrElse { error ->
+            AppLog.w("Backend probe failed for ${backend.baseUrl}", error)
+            Probe(false, -1)
+        }
     }
 }

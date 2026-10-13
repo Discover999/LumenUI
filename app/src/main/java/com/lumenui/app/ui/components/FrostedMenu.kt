@@ -213,16 +213,21 @@ fun AnchoredGlassMenu(
                                 val x = viewLoc[0] - winLoc[0]
                                 val y = viewLoc[1] - winLoc[1]
                                 val rect = Rect(x, y, x + size.width, y + size.height)
-                                rect.intersect(
+                                val intersects = rect.intersect(
                                     0,
                                     0,
                                     activity.window.decorView.width,
                                     activity.window.decorView.height
                                 )
                                 scope.launch {
-                                    backdrop = runCatching {
-                                        captureBlurredBackdrop(activity.window, rect, blurPx)
-                                    }.getOrNull()
+                                    // An empty rect cannot be captured, so skip the copy entirely.
+                                    backdrop = if (intersects) {
+                                        runCatching {
+                                            captureBlurredBackdrop(activity.window, rect, blurPx)
+                                        }.getOrNull()
+                                    } else {
+                                        null
+                                    }
                                 }
                             }
                         },

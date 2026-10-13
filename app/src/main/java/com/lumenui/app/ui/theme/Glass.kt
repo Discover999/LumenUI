@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.createBitmap
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -35,7 +36,7 @@ fun rememberFrostNoise(size: Int = 140): ImageBitmap = remember(size) {
         val v = random.nextInt(256)
         pixels[i] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
     }
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val bitmap = createBitmap(size, size)
     bitmap.setPixels(pixels, 0, size, 0, 0, size, size)
     bitmap.asImageBitmap()
 }

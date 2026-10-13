@@ -1,5 +1,6 @@
 package com.lumenui.app.data
 
+import com.lumenui.app.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -48,6 +49,9 @@ class HttpIpReputationApi(private val client: OkHttpClient) : IpReputationApi {
                 val parsed = json.decodeFromString<IpReputation>(response.body?.string().orEmpty())
                 parsed.takeIf { it.status == "success" }
             }
-        }.getOrNull()
+        }.getOrElse { error ->
+            AppLog.w("IP reputation lookup failed for $ip", error)
+            null
+        }
     }
 }

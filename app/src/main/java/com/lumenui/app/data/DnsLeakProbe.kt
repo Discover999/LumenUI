@@ -1,5 +1,6 @@
 package com.lumenui.app.data
 
+import com.lumenui.app.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -97,7 +98,10 @@ class DnsLeakProbe(private val client: OkHttpClient) {
                 delay(POLL_INTERVAL_MS)
             }
             null
-        }.getOrNull()
+        }.getOrElse { error ->
+            AppLog.w("DNS-leak check failed", error)
+            null
+        }
     }
 
     /** Parses bash.ws' result table: one `<div class="tr">` per resolver, plus a verdict line. */

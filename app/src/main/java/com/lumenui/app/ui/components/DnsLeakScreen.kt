@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -65,7 +66,7 @@ fun DnsLeakScreen(
     val glass = LocalGlassColors.current
     val noise = rememberFrostNoise()
 
-    var runId by remember { mutableStateOf(1) }
+    var runId by remember { mutableIntStateOf(1) }
     var running by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<DnsLeakResult?>(null) }
     var failed by remember { mutableStateOf(false) }

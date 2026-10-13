@@ -1,5 +1,6 @@
 package com.lumenui.app.data
 
+import com.lumenui.app.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -39,7 +40,8 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         onSample: ((Long) -> Unit)?
     ): ProbeResult = withContext(Dispatchers.IO) {
         val start = System.currentTimeMillis()
-        val result = runCatching { check(target, start) }.getOrElse {
+        val result = runCatching { check(target, start) }.getOrElse { error ->
+            AppLog.w("Probe routine failed for ${target.name}", error)
             ProbeResult(target.name, target.category, ProbeStatus.FAILED, System.currentTimeMillis() - start)
         }
         // A failed probe can't be sampled without waiting out a timeout per sample, so skip it.

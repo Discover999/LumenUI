@@ -11,6 +11,8 @@ import android.view.PixelCopy
 import android.view.Window
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.scale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -39,7 +41,7 @@ suspend fun captureBlurredBackdrop(
     radiusPx: Float
 ): ImageBitmap? {
     if (src.width() <= 0 || src.height() <= 0) return null
-    val raw = Bitmap.createBitmap(src.width(), src.height(), Bitmap.Config.ARGB_8888)
+    val raw = createBitmap(src.width(), src.height())
     val ok = withContext(Dispatchers.Main) {
         suspendCancellableCoroutine { cont ->
             try {
@@ -74,7 +76,7 @@ private fun blur(src: Bitmap, radiusPx: Float): Bitmap {
     val scale = 0.4f
     val w = max(1, (src.width * scale).roundToInt())
     val h = max(1, (src.height * scale).roundToInt())
-    val small = Bitmap.createScaledBitmap(src, w, h, true)
+    val small = src.scale(w, h)
     val r = max(1, (radiusPx * scale).roundToInt())
     val px = IntArray(w * h)
     small.getPixels(px, 0, w, 0, 0, w, h)
@@ -84,10 +86,10 @@ private fun blur(src: Bitmap, radiusPx: Float): Bitmap {
     }
     small.recycle()
 
-    val blurred = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val blurred = createBitmap(w, h)
     blurred.setPixels(px, 0, w, 0, 0, w, h)
     if (w == src.width && h == src.height) return blurred
-    val out = Bitmap.createScaledBitmap(blurred, src.width, src.height, true)
+    val out = blurred.scale(src.width, src.height)
     blurred.recycle()
     return out
 }

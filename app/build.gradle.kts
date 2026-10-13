@@ -79,6 +79,17 @@ android {
 
     lint {
         abortOnError = true
+        // Cleartext is a deliberate choice documented in network_security_config.xml, and
+        // dependency upgrades are proposed by Dependabot, so those checks would only add noise.
+        // ObsoleteSdkInt tells us to merge mipmap-anydpi-v26 into mipmap-anydpi, but AAPT2 then
+        // fails to resolve the adaptive launcher icon, so the version qualifier has to stay.
+        disable += setOf(
+            "InsecureBaseConfiguration",
+            "GradleDependency",
+            "NewerVersionAvailable",
+            "AndroidGradlePluginVersion",
+            "ObsoleteSdkInt"
+        )
     }
 
     testOptions {
