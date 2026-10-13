@@ -1,9 +1,29 @@
-# Keep kotlinx.serialization generated serializers
--keepattributes *Annotation*, InnerClasses
--dontnote kotlinx.serialization.**
--keepclassmembers class com.lumenui.app.** {
-    *** Companion;
+# kotlinx.serialization: keep the generated serializers reachable by name.
+# R8 resolves serializers through the companion `serializer()` members, so these must survive.
+
+# Keep `Companion` object fields of serializable classes.
+# This avoids serializer lookup through `getDeclaredClasses` as done for named companion objects.
+-if @kotlinx.serialization.Serializable class **
+-keepclassmembers class <1> {
+    static <1>$Companion Companion;
 }
--keepclasseswithmembers class com.lumenui.app.** {
+
+# Keep `serializer()` on companion objects (both default and named).
+-if @kotlinx.serialization.Serializable class ** {
+    static **$* *;
+}
+-keepclassmembers class <2>$<3> {
     kotlinx.serialization.KSerializer serializer(...);
 }
+
+# Keep `INSTANCE.serializer()` of serializable objects.
+-if @kotlinx.serialization.Serializable class ** {
+    public static ** INSTANCE;
+}
+-keepclassmembers class <1> {
+    public static <1> INSTANCE;
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# @Serializable and @Polymorphic are used at runtime for polymorphic serialization.
+-keepattributes RuntimeVisibleAnnotations,AnnotationDefault

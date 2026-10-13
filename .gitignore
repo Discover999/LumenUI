@@ -23,6 +23,7 @@ local.properties
 *.keystore
 *.p12
 *.pem
+keystore.properties
 *.apk
 *.aab
 *.hprof
