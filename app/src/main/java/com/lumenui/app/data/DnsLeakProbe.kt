@@ -80,7 +80,7 @@ class DnsLeakProbe(private val client: OkHttpClient) {
                             probeClient.newCall(
                                 Request.Builder()
                                     .url("https://$name.$runId.bash.ws/")
-                                    .header("User-Agent", USER_AGENT)
+                                    .header("User-Agent", PROBE_USER_AGENT)
                                     .build()
                             ).execute().close()
                         }
@@ -118,7 +118,7 @@ class DnsLeakProbe(private val client: OkHttpClient) {
     private fun post(url: String, form: Map<String, String>): String {
         val body = FormBody.Builder().apply { form.forEach { (key, value) -> add(key, value) } }.build()
         return client.newCall(
-            Request.Builder().url(url).header("User-Agent", USER_AGENT).post(body).build()
+            Request.Builder().url(url).header("User-Agent", PROBE_USER_AGENT).post(body).build()
         ).execute().use { it.body?.string().orEmpty() }
     }
 
@@ -130,9 +130,6 @@ class DnsLeakProbe(private val client: OkHttpClient) {
         const val PROBE_COUNT = 30
         const val POLL_ATTEMPTS = 15
         const val POLL_INTERVAL_MS = 1500L
-
-        const val USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
         val Host = Regex("data-host=\"([^\"]+)\"")
         val Ctr = Regex("data-ctr=\"([^\"]+)\"")

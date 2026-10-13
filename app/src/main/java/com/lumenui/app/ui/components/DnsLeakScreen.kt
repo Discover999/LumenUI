@@ -51,11 +51,6 @@ import com.lumenui.app.ui.theme.SystemBarAppearance
 import com.lumenui.app.ui.theme.glassSurface
 import com.lumenui.app.ui.theme.rememberFrostNoise
 
-private val OkColor = Color(0xFF6BD08A)
-private val WarnColor = Color(0xFFE5B567)
-private val BadColor = Color(0xFFE0685F)
-private val MutedColor = Color(0xFF9BA9BE)
-
 /**
  * Full-screen DNS-leak page. Runs the check the moment it opens and shows the verdict plus
  * the resolvers that actually answered, so a reader can tell a tunneled lookup from a leak.

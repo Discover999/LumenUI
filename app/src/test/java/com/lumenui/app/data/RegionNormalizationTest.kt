@@ -8,30 +8,30 @@ class RegionNormalizationTest {
 
     @Test
     fun twoLetterCodesPassThroughUppercased() {
-        assertEquals("US", HttpConnectivityProbe.normalizeRegion("US"))
-        assertEquals("US", HttpConnectivityProbe.normalizeRegion("us"))
-        assertEquals("JP", HttpConnectivityProbe.normalizeRegion("jp"))
+        assertEquals("US", RegionCodes.normalize("US"))
+        assertEquals("US", RegionCodes.normalize("us"))
+        assertEquals("JP", RegionCodes.normalize("jp"))
     }
 
     @Test
     fun threeLetterIsoCodesAreMapped() {
-        assertEquals("TW", HttpConnectivityProbe.normalizeRegion("TWN"))
-        assertEquals("JP", HttpConnectivityProbe.normalizeRegion("JPN"))
-        assertEquals("GB", HttpConnectivityProbe.normalizeRegion("GBR"))
-        assertEquals("DE", HttpConnectivityProbe.normalizeRegion("DEU"))
-        assertEquals("CN", HttpConnectivityProbe.normalizeRegion("CHN"))
+        assertEquals("TW", RegionCodes.normalize("TWN"))
+        assertEquals("JP", RegionCodes.normalize("JPN"))
+        assertEquals("GB", RegionCodes.normalize("GBR"))
+        assertEquals("DE", RegionCodes.normalize("DEU"))
+        assertEquals("CN", RegionCodes.normalize("CHN"))
     }
 
     @Test
     fun awsStyleEdgeRegionsAreMapped() {
-        assertEquals("US", HttpConnectivityProbe.normalizeRegion("EASTUS2"))
-        assertEquals("NL", HttpConnectivityProbe.normalizeRegion("WESTEUROPE"))
-        assertEquals("SG", HttpConnectivityProbe.normalizeRegion("SOUTHEASTASIA"))
-        assertEquals("JP", HttpConnectivityProbe.normalizeRegion("JAPANEAST"))
+        assertEquals("US", RegionCodes.normalize("EASTUS2"))
+        assertEquals("NL", RegionCodes.normalize("WESTEUROPE"))
+        assertEquals("SG", RegionCodes.normalize("SOUTHEASTASIA"))
+        assertEquals("JP", RegionCodes.normalize("JAPANEAST"))
     }
 
     @Test
     fun unknownCodeReturnsNull() {
-        assertNull(HttpConnectivityProbe.normalizeRegion("XYZ"))
+        assertNull(RegionCodes.normalize("XYZ"))
     }
 }

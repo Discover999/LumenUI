@@ -1,0 +1,100 @@
+package com.lumenui.app.data
+
+/**
+ * Region-unlock checks, modelled on Bettbox's media-unlock checker.
+ *
+ * Most platforms sit behind Cloudflare, so a single request to `<domain>/cdn-cgi/trace`
+ * yields the egress IP, region (`loc`), colo and WARP flag; comparing `loc` against the
+ * platform's unsupported-region set decides unlocked vs blocked. Platforms with their own
+ * edge signals (Netflix, Disney+, YouTube, Spotify, Gemini, GitHub, Reddit, TikTok) get a
+ * dedicated routine, and a Cloudflare challenge is reported as its own status.
+ */
+object ConnectivityTargets {
+    const val AI = "AI 服务"
+    const val STREAMING = "流媒体解锁"
+    const val COMMON = "常用 & 开发"
+    const val SOCIAL = "社交"
+    const val CHINA = "中国大陆"
+    const val GAMING = "游戏"
+    const val CRYPTO = "加密 / 支付"
+
+    private val OPENAI_UNSUPPORTED = setOf(
+        "CN", "HK", "MO", "RU", "IR", "KP", "SY", "CU", "VE", "BY",
+        "AF", "SS", "YE", "ZW", "MM", "SD", "SO", "CF"
+    )
+    private val CLAUDE_UNSUPPORTED = OPENAI_UNSUPPORTED + setOf("VN", "TR")
+
+    private fun trace(name: String, category: String, domain: String, unsupported: Set<String> = emptySet()) =
+        ProbeTarget(name, category, ProbeKind.TRACE, domain = domain, unsupportedRegions = unsupported)
+
+    private fun simple(name: String, category: String, url: String) =
+        ProbeTarget(name, category, ProbeKind.SIMPLE, url = url)
+
+    val all: List<ProbeTarget> = listOf(
+        // AI
+        trace("OpenAI", AI, "chatgpt.com", OPENAI_UNSUPPORTED),
+        trace("Claude", AI, "api.anthropic.com", CLAUDE_UNSUPPORTED),
+        ProbeTarget("Gemini", AI, ProbeKind.GEMINI),
+        trace("Grok", AI, "api.x.ai"),
+        trace("Perplexity", AI, "www.perplexity.ai"),
+        trace("OpenRouter", AI, "openrouter.ai"),
+        trace("Poe", AI, "poe.com"),
+        trace("Suno", AI, "suno.com"),
+
+        // Streaming
+        ProbeTarget("Netflix", STREAMING, ProbeKind.NETFLIX),
+        ProbeTarget("Disney+", STREAMING, ProbeKind.DISNEY),
+        ProbeTarget("YouTube", STREAMING, ProbeKind.YOUTUBE),
+        ProbeTarget("Spotify", STREAMING, ProbeKind.SPOTIFY),
+        ProbeTarget("TikTok", STREAMING, ProbeKind.TIKTOK),
+        trace("Crunchyroll", STREAMING, "crunchyroll.com"),
+
+        // Common & developer
+        simple("Google", COMMON, "https://www.google.com/generate_204"),
+        ProbeTarget("GitHub", COMMON, ProbeKind.GITHUB),
+        trace("GitLab", COMMON, "gitlab.com"),
+        simple("Wikipedia", COMMON, "https://www.wikipedia.org/"),
+        trace("npm", COMMON, "registry.npmjs.org"),
+        trace("cdnjs", COMMON, "cdnjs.cloudflare.com"),
+        trace("unpkg", COMMON, "unpkg.com"),
+        trace("Node.js", COMMON, "nodejs.org"),
+        simple("Apple", COMMON, "https://www.apple.com/"),
+
+        // Social
+        trace("X (Twitter)", SOCIAL, "x.com"),
+        trace("Discord", SOCIAL, "gateway.discord.gg"),
+        ProbeTarget("Reddit", SOCIAL, ProbeKind.REDDIT),
+        simple("Telegram", SOCIAL, "https://telegram.org/"),
+        trace("Medium", SOCIAL, "medium.com"),
+        trace("Stack Overflow", SOCIAL, "stackoverflow.com"),
+        trace("Quora", SOCIAL, "www.quora.com"),
+        trace("V2EX", SOCIAL, "v2ex.com"),
+
+        // Mainland China
+        simple("百度", CHINA, "https://www.baidu.com/"),
+        simple("Bilibili", CHINA, "https://www.bilibili.com/"),
+        simple("腾讯", CHINA, "https://www.qq.com/"),
+        simple("网易", CHINA, "https://www.163.com/"),
+
+        // Gaming
+        simple("Steam", GAMING, "https://store.steampowered.com/"),
+        trace("Epic Games", GAMING, "store.epicgames.com"),
+        trace("Ubisoft", GAMING, "store.ubisoft.com"),
+        trace("Humble Bundle", GAMING, "humblebundle.com"),
+
+        // Crypto / payments
+        trace("Coinbase", CRYPTO, "www.coinbase.com"),
+        trace("OKX", CRYPTO, "www.okx.com"),
+        trace("Kraken", CRYPTO, "www.kraken.com"),
+        simple("PayPal", CRYPTO, "https://www.paypal.com/")
+    )
+
+    /** Tested by default; everything else is opt-in from the settings sheet. */
+    val defaultSelected: Set<String> = setOf(
+        "OpenAI", "Claude", "Gemini", "Grok",
+        "Netflix", "Disney+", "YouTube", "Spotify",
+        "Google", "GitHub", "Telegram",
+        "X (Twitter)", "Discord",
+        "百度", "Bilibili", "腾讯", "网易"
+    )
+}

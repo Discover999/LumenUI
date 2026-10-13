@@ -13,141 +13,6 @@ import okhttp3.Response
 import okio.Buffer
 import java.util.concurrent.TimeUnit
 
-enum class ProbeStatus { UNLOCKED, LIMITED, FLAGGED, BLOCKED, FAILED }
-
-/** Which routine probes a platform. */
-enum class ProbeKind { TRACE, NETFLIX, DISNEY, YOUTUBE, SPOTIFY, GEMINI, GITHUB, REDDIT, TIKTOK, SIMPLE }
-
-data class ProbeTarget(
-    val name: String,
-    val category: String,
-    val kind: ProbeKind,
-    val domain: String = "",
-    val url: String = "",
-    val fallbackDomains: List<String> = emptyList(),
-    val unsupportedRegions: Set<String> = emptySet()
-)
-
-data class ProbeResult(
-    val name: String,
-    val category: String,
-    val status: ProbeStatus,
-    val latencyMs: Long,
-    val region: String? = null,
-    val colo: String? = null,
-    val ip: String? = null,
-    val isWarp: Boolean = false,
-    /** Consecutive request timings in ms; a negative value marks a failed sample. */
-    val samples: List<Long> = emptyList()
-)
-
-/** Latency samples shown per card (one dot each). */
-const val LATENCY_SAMPLE_COUNT = 8
-
-/**
- * Region-unlock checks, modelled on Bettbox's media-unlock checker.
- *
- * Most platforms sit behind Cloudflare, so a single request to `<domain>/cdn-cgi/trace`
- * yields the egress IP, region (`loc`), colo and WARP flag; comparing `loc` against the
- * platform's unsupported-region set decides unlocked vs blocked. Platforms with their own
- * edge signals (Netflix, Disney+, YouTube, Spotify, Gemini, GitHub, Reddit, TikTok) get a
- * dedicated routine, and a Cloudflare challenge is reported as its own status.
- */
-object ConnectivityTargets {
-    const val AI = "AI 服务"
-    const val STREAMING = "流媒体解锁"
-    const val COMMON = "常用 & 开发"
-    const val SOCIAL = "社交"
-    const val CHINA = "中国大陆"
-    const val GAMING = "游戏"
-    const val CRYPTO = "加密 / 支付"
-
-    private val OPENAI_UNSUPPORTED = setOf(
-        "CN", "HK", "MO", "RU", "IR", "KP", "SY", "CU", "VE", "BY",
-        "AF", "SS", "YE", "ZW", "MM", "SD", "SO", "CF"
-    )
-    private val CLAUDE_UNSUPPORTED = OPENAI_UNSUPPORTED + setOf("VN", "TR")
-
-    private fun trace(name: String, category: String, domain: String, unsupported: Set<String> = emptySet()) =
-        ProbeTarget(name, category, ProbeKind.TRACE, domain = domain, unsupportedRegions = unsupported)
-
-    private fun simple(name: String, category: String, url: String) =
-        ProbeTarget(name, category, ProbeKind.SIMPLE, url = url)
-
-    val all: List<ProbeTarget> = listOf(
-        // AI
-        trace("OpenAI", AI, "chatgpt.com", OPENAI_UNSUPPORTED),
-        trace("Claude", AI, "api.anthropic.com", CLAUDE_UNSUPPORTED),
-        ProbeTarget("Gemini", AI, ProbeKind.GEMINI),
-        trace("Grok", AI, "api.x.ai"),
-        trace("Perplexity", AI, "www.perplexity.ai"),
-        trace("OpenRouter", AI, "openrouter.ai"),
-        trace("Poe", AI, "poe.com"),
-        trace("Suno", AI, "suno.com"),
-
-        // Streaming
-        ProbeTarget("Netflix", STREAMING, ProbeKind.NETFLIX),
-        ProbeTarget("Disney+", STREAMING, ProbeKind.DISNEY),
-        ProbeTarget("YouTube", STREAMING, ProbeKind.YOUTUBE),
-        ProbeTarget("Spotify", STREAMING, ProbeKind.SPOTIFY),
-        ProbeTarget("TikTok", STREAMING, ProbeKind.TIKTOK),
-        trace("Crunchyroll", STREAMING, "crunchyroll.com"),
-
-        // Common & developer
-        simple("Google", COMMON, "https://www.google.com/generate_204"),
-        ProbeTarget("GitHub", COMMON, ProbeKind.GITHUB),
-        trace("GitLab", COMMON, "gitlab.com"),
-        simple("Wikipedia", COMMON, "https://www.wikipedia.org/"),
-        trace("npm", COMMON, "registry.npmjs.org"),
-        trace("cdnjs", COMMON, "cdnjs.cloudflare.com"),
-        trace("unpkg", COMMON, "unpkg.com"),
-        trace("Node.js", COMMON, "nodejs.org"),
-        simple("Apple", COMMON, "https://www.apple.com/"),
-
-        // Social
-        trace("X (Twitter)", SOCIAL, "x.com"),
-        trace("Discord", SOCIAL, "gateway.discord.gg"),
-        ProbeTarget("Reddit", SOCIAL, ProbeKind.REDDIT),
-        simple("Telegram", SOCIAL, "https://telegram.org/"),
-        trace("Medium", SOCIAL, "medium.com"),
-        trace("Stack Overflow", SOCIAL, "stackoverflow.com"),
-        trace("Quora", SOCIAL, "www.quora.com"),
-        trace("V2EX", SOCIAL, "v2ex.com"),
-
-        // Mainland China
-        simple("百度", CHINA, "https://www.baidu.com/"),
-        simple("Bilibili", CHINA, "https://www.bilibili.com/"),
-        simple("腾讯", CHINA, "https://www.qq.com/"),
-        simple("网易", CHINA, "https://www.163.com/"),
-
-        // Gaming
-        simple("Steam", GAMING, "https://store.steampowered.com/"),
-        trace("Epic Games", GAMING, "store.epicgames.com"),
-        trace("Ubisoft", GAMING, "store.ubisoft.com"),
-        trace("Humble Bundle", GAMING, "humblebundle.com"),
-
-        // Crypto / payments
-        trace("Coinbase", CRYPTO, "www.coinbase.com"),
-        trace("OKX", CRYPTO, "www.okx.com"),
-        trace("Kraken", CRYPTO, "www.kraken.com"),
-        simple("PayPal", CRYPTO, "https://www.paypal.com/")
-    )
-
-    /** Tested by default; everything else is opt-in from the settings sheet. */
-    val defaultSelected: Set<String> = setOf(
-        "OpenAI", "Claude", "Gemini", "Grok",
-        "Netflix", "Disney+", "YouTube", "Spotify",
-        "Google", "GitHub", "Telegram",
-        "X (Twitter)", "Discord",
-        "百度", "Bilibili", "腾讯", "网易"
-    )
-}
-
-/** Probes connectivity targets; implementations report each latency sample as it lands. */
-interface ConnectivityProbe {
-    suspend fun probe(target: ProbeTarget, onSample: ((Long) -> Unit)? = null): ProbeResult
-}
-
 class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
 
     private val followClient: OkHttpClient = base.newBuilder()
@@ -286,7 +151,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
                     }
                 }
                 colo = colo ?: coloFromRay(res.header("cf-ray"))
-                val region = loc?.uppercase()?.let(::normalizeRegion)
+                val region = loc?.uppercase()?.let(RegionCodes::normalize)
                 if (!ip.isNullOrEmpty()) {
                     val blocked = region != null && target.unsupportedRegions.contains(region)
                     return target.done(
@@ -377,7 +242,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
                 val body = readBody(res, 48 * 1024)
                 raw = GEO_COUNTRY_REGEX.find(body)?.groupValues?.get(1)?.uppercase()
             }
-            val region = raw?.let(::normalizeRegion)
+            val region = raw?.let(RegionCodes::normalize)
             val status = when {
                 finalUrl.contains("why-not-available") -> ProbeStatus.BLOCKED
                 res.code == 403 || res.code == 429 -> ProbeStatus.BLOCKED
@@ -399,7 +264,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
             val body = readBody(res, 200 * 1024)
             val raw = GEMINI_REGION_REGEX.find(body)?.groupValues?.get(1)
                 ?: GEMINI_REGION_ALT_REGEX.find(body)?.groupValues?.get(1)
-            val region = raw?.let(::normalizeRegion)
+            val region = raw?.let(RegionCodes::normalize)
             val unsupported = (raw != null && GEMINI_UNSUPPORTED.contains(raw)) ||
                 (region != null && GEMINI_UNSUPPORTED.contains(region))
             val unavailable = finalUrl.contains("unavailable") ||
@@ -422,7 +287,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
             ?: return target.done(start, ProbeStatus.FAILED)
         response.use { res ->
             val region = res.header("x-github-edge-region")?.takeIf { it.isNotEmpty() }
-                ?.uppercase()?.let(::normalizeRegion)
+                ?.uppercase()?.let(RegionCodes::normalize)
             val status = when (res.code) {
                 200 -> ProbeStatus.UNLOCKED
                 403 -> ProbeStatus.BLOCKED
@@ -437,7 +302,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
             ?: return target.done(start, ProbeStatus.FAILED)
         response.use { res ->
             val timing = res.header("server-timing").orEmpty()
-            val region = REDDIT_POP_REGEX.find(timing)?.groupValues?.get(1)?.let(::normalizeRegion)
+            val region = REDDIT_POP_REGEX.find(timing)?.groupValues?.get(1)?.let(RegionCodes::normalize)
             val status = when {
                 res.code == 200 -> ProbeStatus.UNLOCKED
                 res.code == 403 -> ProbeStatus.BLOCKED
@@ -460,7 +325,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
             val cinfo = res.header("x-response-cinfo") ?: res.header("x-request-ip").orEmpty()
             val raw = TIKTOK_VIA_REGEX.find(via)?.groupValues?.get(1)
                 ?: Regex("\\b([A-Z]{2})\\b").find(cinfo.replace(Regex("\\d+\\.\\d+\\.\\d+\\.\\d+"), ""))?.groupValues?.get(1)
-            val region = raw?.let(::normalizeRegion)
+            val region = raw?.let(RegionCodes::normalize)
             val status = if (res.code in 200..399) ProbeStatus.UNLOCKED else ProbeStatus.BLOCKED
             return target.done(start, status, region)
         }
@@ -487,7 +352,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
 
     private fun request(url: String) = Request.Builder()
         .url(url)
-        .header("User-Agent", USER_AGENT)
+        .header("User-Agent", PROBE_USER_AGENT)
         .header("Accept-Language", "en-US,en;q=0.9")
 
     /** Reads at most [maxBytes] of the body, enough for the markers we look for. */
@@ -531,9 +396,6 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         /** Minimum gap between reporting two samples, so the dots don't pop in a burst. */
         const val SAMPLE_INTERVAL_MS = 300L
 
-        const val USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-
         val NETFLIX_REGION = Regex("netflix\\.com/([a-z]{2})(?:-[a-z]{2})?/title/")
         val SPOTIFY_REGION = Regex("spotify\\.com/([a-z]{2})(?:-[a-z]{2})?/")
         val GEO_COUNTRY_REGEX = Regex("geoCountry\"?\\s*:\\s*\"([A-Z]{2})\"")
@@ -549,45 +411,5 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
             "KP", "PRK", "SY", "SYR", "CU", "CUB", "VE", "VEN", "MM", "MMR",
             "SD", "SDN", "AF", "AFG", "SS", "SSD", "YE", "YEM", "ZW", "ZWE"
         )
-
-        val REGION_ALIASES = mapOf(
-            "TWN" to "TW", "NTW" to "TW", "TWD" to "TW",
-            "JPN" to "JP", "JPY" to "JP",
-            "KOR" to "KR", "KRW" to "KR",
-            "SGP" to "SG", "SGD" to "SG",
-            "GBR" to "GB", "GBP" to "GB",
-            "USA" to "US", "USD" to "US",
-            "HKG" to "HK", "HKD" to "HK",
-            "CHN" to "CN", "RUS" to "RU", "IRN" to "IR", "PRK" to "KP",
-            "SYR" to "SY", "CUB" to "CU", "BLR" to "BY", "VEN" to "VE",
-            "MMR" to "MM", "SDN" to "SD", "AFG" to "AF", "SSD" to "SS",
-            "YEM" to "YE", "ZWE" to "ZW", "MAC" to "MO",
-            "DEU" to "DE", "FRA" to "FR", "NLD" to "NL", "CAN" to "CA",
-            "AUS" to "AU", "IND" to "IN", "BRA" to "BR", "MEX" to "MX",
-            "ITA" to "IT", "ESP" to "ES", "SWE" to "SE", "CHE" to "CH",
-            "AUT" to "AT", "POL" to "PL", "TUR" to "TR", "VNM" to "VN",
-            "THA" to "TH", "MYS" to "MY", "IDN" to "ID", "PHL" to "PH",
-            "ARG" to "AR", "CHL" to "CL", "ZAF" to "ZA", "ARE" to "AE",
-            "ISR" to "IL", "SAU" to "SA", "EGY" to "EG", "NGA" to "NG",
-            "KEN" to "KE", "NZL" to "NZ", "IRL" to "IE", "PRT" to "PT",
-            "GRC" to "GR", "CZE" to "CZ", "ROU" to "RO", "UKR" to "UA",
-            "HUN" to "HU", "FIN" to "FI", "NOR" to "NO", "DNK" to "DK",
-            "BEL" to "BE", "COL" to "CO", "PER" to "PE",
-            // GitHub reports AWS-style edge regions.
-            "SOUTHEASTASIA" to "SG", "EASTASIA" to "HK", "EASTUS" to "US",
-            "EASTUS2" to "US", "WESTUS" to "US", "WESTUS2" to "US",
-            "CENTRALUS" to "US", "SOUTHCENTRALUS" to "US", "NORTHCENTRALUS" to "US",
-            "WESTEUROPE" to "NL", "NORTHEUROPE" to "IE", "JAPANEAST" to "JP",
-            "JAPANWEST" to "JP", "AUSTRALIAEAST" to "AU", "CENTRALINDIA" to "IN",
-            "SOUTHINDIA" to "IN", "BRAZILSOUTH" to "BR", "SOUTHAMERICA" to "BR",
-            "UKSOUTH" to "GB", "FRANCECENTRAL" to "FR", "GERMANYWESTCENTRAL" to "DE",
-            "CANADACENTRAL" to "CA", "KOREACENTRAL" to "KR", "SWITZERLANDNORTH" to "CH"
-        )
-
-        fun normalizeRegion(code: String): String? {
-            val upper = code.uppercase()
-            if (upper.length == 2) return upper
-            return REGION_ALIASES[upper]
-        }
     }
 }
