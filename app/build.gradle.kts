@@ -3,7 +3,6 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
@@ -23,12 +22,12 @@ val hasReleaseKeystore = keystorePropertiesFile.exists()
 
 android {
     namespace = "com.lumenui.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.lumenui.app"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         // Version follows the bundled zashboard panel (assets/zashboard): 3.29.1 -> 32901.
         // Bump both when the panel is updated so the app version never drifts from the panel.
         versionCode = 32901

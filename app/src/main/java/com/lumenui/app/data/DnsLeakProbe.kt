@@ -123,7 +123,7 @@ class DnsLeakProbe(private val client: OkHttpClient) {
         val body = FormBody.Builder().apply { form.forEach { (key, value) -> add(key, value) } }.build()
         return client.newCall(
             Request.Builder().url(url).header("User-Agent", PROBE_USER_AGENT).post(body).build()
-        ).execute().use { it.body?.string().orEmpty() }
+        ).execute().use { it.body.string() }
     }
 
     private fun checkBody(testUrl: String) =

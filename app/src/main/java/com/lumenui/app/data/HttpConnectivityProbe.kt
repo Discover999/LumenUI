@@ -134,7 +134,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
             val response = get(followClient, "https://$domain/cdn-cgi/trace") ?: continue
             response.use { res ->
                 anyResponse = true
-                val body = res.body?.string().orEmpty()
+                val body = res.body.string()
                 var ip: String? = null
                 var loc: String? = null
                 var colo: String? = null
@@ -359,7 +359,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
 
     /** Reads at most [maxBytes] of the body, enough for the markers we look for. */
     private fun readBody(res: Response, maxBytes: Int): String {
-        val source = res.body?.source() ?: return ""
+        val source = res.body.source()
         val buffer = Buffer()
         val chunk = Buffer()
         while (buffer.size < maxBytes) {
