@@ -6,7 +6,7 @@ package com.lumenui.app.data
  * Most platforms sit behind Cloudflare, so a single request to `<domain>/cdn-cgi/trace`
  * yields the egress IP, region (`loc`), colo and WARP flag; comparing `loc` against the
  * platform's unsupported-region set decides unlocked vs blocked. Platforms with their own
- * edge signals (Netflix, Disney+, YouTube, Spotify, Gemini, GitHub, Reddit, TikTok) get a
+ * signals (Netflix, Disney+, YouTube, Spotify, Gemini, GitHub, Reddit, TikTok, OpenAI) get a
  * dedicated routine, and a Cloudflare challenge is reported as its own status.
  */
 object ConnectivityTargets {
@@ -18,11 +18,11 @@ object ConnectivityTargets {
     const val GAMING = "游戏"
     const val CRYPTO = "加密 / 支付"
 
-    private val OPENAI_UNSUPPORTED = setOf(
+    private val CLAUDE_UNSUPPORTED = setOf(
         "CN", "HK", "MO", "RU", "IR", "KP", "SY", "CU", "VE", "BY",
-        "AF", "SS", "YE", "ZW", "MM", "SD", "SO", "CF"
+        "AF", "SS", "YE", "ZW", "MM", "SD", "SO", "CF",
+        "VN", "TR"
     )
-    private val CLAUDE_UNSUPPORTED = OPENAI_UNSUPPORTED + setOf("VN", "TR")
 
     private fun trace(name: String, category: String, domain: String, unsupported: Set<String> = emptySet()) =
         ProbeTarget(name, category, ProbeKind.TRACE, domain = domain, unsupportedRegions = unsupported)
@@ -32,7 +32,7 @@ object ConnectivityTargets {
 
     val all: List<ProbeTarget> = listOf(
         // AI
-        trace("OpenAI", AI, "chatgpt.com", OPENAI_UNSUPPORTED),
+        ProbeTarget("OpenAI", AI, ProbeKind.OPENAI),
         trace("Claude", AI, "api.anthropic.com", CLAUDE_UNSUPPORTED),
         ProbeTarget("Gemini", AI, ProbeKind.GEMINI),
         trace("Grok", AI, "api.x.ai"),

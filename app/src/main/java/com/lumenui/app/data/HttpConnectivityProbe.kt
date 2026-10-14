@@ -98,8 +98,9 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
     /** URL used for the repeated latency samples: the same endpoint the probe checks, or its home. */
     private fun sampleUrl(target: ProbeTarget): String? = when (target.kind) {
         ProbeKind.TRACE -> "https://${target.domain}/cdn-cgi/trace"
+        ProbeKind.OPENAI -> OPENAI_TRACE_URL
         ProbeKind.SIMPLE -> target.url.ifEmpty { "https://${target.domain}/" }
-        ProbeKind.NETFLIX -> "https://www.netflix.com/title/70143836"
+        ProbeKind.NETFLIX -> "https://www.netflix.com/title/$NETFLIX_LICENSED_TITLE"
         ProbeKind.DISNEY -> "https://www.disneyplus.com/"
         ProbeKind.YOUTUBE -> "https://www.youtube.com/premium"
         ProbeKind.SPOTIFY -> "https://www.spotify.com/signup"
@@ -113,6 +114,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
 
     private fun check(target: ProbeTarget, start: Long): ProbeResult = when (target.kind) {
         ProbeKind.TRACE -> checkTrace(target, start)
+        ProbeKind.OPENAI -> checkOpenAi(target, start)
         ProbeKind.NETFLIX -> checkNetflix(target, start)
         ProbeKind.DISNEY -> checkDisney(target, start)
         ProbeKind.YOUTUBE -> checkYouTube(target, start)
@@ -131,6 +133,15 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
 
     // --- Cloudflare trace ---------------------------------------------------
 
+    /**
+     * Cloudflare trace probe: reads the egress region off the edge and compares it against the
+     * target's unsupported-region set.
+     *
+     * Most targets carry no such set — there is no established region criterion for them — so for
+     * those the verdict is reachability and nothing more, the same claim [checkPing] makes, with
+     * the trace fetched for the region and address the card shows. Only the targets that do carry
+     * a set ([OI] used to, Claude does) get a region verdict out of this routine.
+     */
     private fun checkTrace(target: ProbeTarget, start: Long): ProbeResult {
         var anyResponse = false
         var flagged = false
@@ -139,31 +150,14 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
             response.use { res ->
                 anyResponse = true
                 val body = res.body.string()
-                var ip: String? = null
-                var loc: String? = null
-                var colo: String? = null
-                var warp = false
-                if (res.code in 200..399 && body.isNotEmpty() && !body.contains("<!DOCTYPE")) {
-                    body.lineSequence().forEach { line ->
-                        val i = line.indexOf('=')
-                        if (i > 0) {
-                            when (line.take(i).trim()) {
-                                "ip" -> ip = line.substring(i + 1).trim()
-                                "loc" -> loc = line.substring(i + 1).trim()
-                                "colo" -> colo = line.substring(i + 1).trim()
-                                "warp" -> warp = line.substring(i + 1).trim() != "off"
-                            }
-                        }
-                    }
-                }
-                colo = colo ?: coloFromRay(res.header("cf-ray"))
-                val region = loc?.uppercase()?.let(RegionCodes::normalize)
-                if (!ip.isNullOrEmpty()) {
+                val trace = parseTrace(res.code, body, res.header("cf-ray"))
+                val region = trace.loc?.uppercase()?.let(RegionCodes::normalize)
+                if (!trace.ip.isNullOrEmpty()) {
                     val blocked = region != null && target.unsupportedRegions.contains(region)
                     return target.done(
                         start,
                         if (blocked) ProbeStatus.BLOCKED else ProbeStatus.UNLOCKED,
-                        region, colo?.uppercase(), ip, warp
+                        region, trace.colo?.uppercase(), trace.ip, trace.warp
                     )
                 }
                 if (isCloudflareChallenge(res, body)) flagged = true
@@ -179,27 +173,87 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
 
     // --- Platform-specific routines ----------------------------------------
 
-    private fun checkNetflix(target: ProbeTarget, start: Long): ProbeResult {
+    /**
+     * ChatGPT availability, following RegionRestrictionCheck: [OI] exposes two endpoints that
+     * separate "this country is unsupported" from "this looks like a VPN", so the verdict comes
+     * from the platform itself rather than from a region list that goes stale.
+     *
+     * Neither endpoint names the egress region, so a Cloudflare trace is fetched as well for the
+     * region and address the card shows; the trace failing leaves the verdict untouched.
+     */
+    private fun checkOpenAi(target: ProbeTarget, start: Long): ProbeResult {
         var region: String? = null
-        get(noFollowClient, "https://www.netflix.com/title/70143836")?.use { res ->
-            val location = res.header("Location").orEmpty()
-            region = NETFLIX_REGION.find(location)?.groupValues?.get(1)?.uppercase() ?: region
-            if ((res.code == 301 || res.code == 302) && location.contains("/title/70143836")) {
-                return target.done(start, ProbeStatus.UNLOCKED, region)
-            }
-            if (res.code == 200) return target.done(start, ProbeStatus.UNLOCKED, region)
+        var colo: String? = null
+        var ip: String? = null
+        var warp = false
+        get(followClient, OPENAI_TRACE_URL)?.use { res ->
+            val trace = parseTrace(res.code, res.body.string(), res.header("cf-ray"))
+            region = trace.loc?.uppercase()?.let(RegionCodes::normalize)
+            colo = trace.colo?.uppercase()
+            ip = trace.ip
+            warp = trace.warp
         }
-        get(noFollowClient, "https://www.netflix.com/title/81280792")?.use { res ->
-            val location = res.header("Location").orEmpty()
-            region = NETFLIX_REGION.find(location)?.groupValues?.get(1)?.uppercase() ?: region
-            val status = if ((res.code == 301 || res.code == 302) && location.contains("/title/81280792")) {
-                ProbeStatus.LIMITED
-            } else {
-                ProbeStatus.BLOCKED
-            }
-            return target.done(start, status, region)
+        val unsupported = get(followClient, OPENAI_COMPLIANCE_URL, OPENAI_COMPLIANCE_HEADERS)?.use { res ->
+            readBody(res, OPENAI_MARKER_BYTES).contains("unsupported_country", ignoreCase = true)
+        } ?: return target.done(start, ProbeStatus.FAILED)
+        val vpn = get(followClient, OPENAI_IOS_URL, OPENAI_IOS_HEADERS)?.use { res ->
+            readBody(res, OPENAI_MARKER_BYTES).contains("VPN", ignoreCase = true)
+        } ?: return target.done(start, ProbeStatus.FAILED)
+        val status = openAiStatus(unsupported, vpn)
+        return target.done(start, status, region, colo, ip, warp)
+    }
+
+    /**
+     * Netflix region-unlock check, following sjlleo/netflix-verify's model: a title every region
+     * that carries Netflix can stream ([NETFLIX_AREA_TITLE]) says whether the service exists
+     * where the egress sits, and a licensed (non-original) title ([NETFLIX_LICENSED_TITLE]) says
+     * whether the catalogue reaches past Netflix's own productions.
+     *
+     * Redirects are not followed: an available title answers `301` with
+     * `Location: https://www.netflix.com/<region>-<lang>/title/<id>`, and requiring that Location
+     * to name the same title keeps a redirect to `/browse` or `/unsupportedbrowser` from reading
+     * as availability. Region comes out of the same Location, already stripped of its language
+     * suffix by [NETFLIX_REGION].
+     */
+    private fun checkNetflix(target: ProbeTarget, start: Long): ProbeResult {
+        val area = netflixTitle(NETFLIX_AREA_TITLE)
+        val licensed = netflixTitle(NETFLIX_LICENSED_TITLE)
+        // The licensed title names the region too, but it may be the one that did not play, so
+        // either response is allowed to supply it.
+        val region = licensed?.region ?: area?.region
+        val status = when {
+            // 403 is Netflix refusing the egress address outright, self-test title included.
+            area?.code == 403 || licensed?.code == 403 -> ProbeStatus.BLOCKED
+            // Licensed content plays, so the catalogue reaches past Netflix's own productions.
+            licensed?.playable == true -> ProbeStatus.UNLOCKED
+            // Only the self-test title plays: the region carries Netflix, but originals are all
+            // it will serve this address.
+            area?.playable == true -> ProbeStatus.LIMITED
+            // Nothing answered at all. Reported as a failed probe, not as a region verdict.
+            area == null && licensed == null -> ProbeStatus.FAILED
+            // Both answered and neither title played.
+            else -> ProbeStatus.BLOCKED
         }
-        return target.done(start, ProbeStatus.FAILED, region)
+        return target.done(start, status, region)
+    }
+
+    /** What one title page said: its HTTP status, whether it plays, and the region it named. */
+    private data class NetflixTitle(val code: Int, val playable: Boolean, val region: String?)
+
+    /**
+     * Requests one Netflix title without following redirects, or null when the request did not
+     * come back at all. The page plays where the answer is `301`/`302` pointing at the same
+     * title; anywhere else (a `404`, or a redirect to a browsing page) means it is not available
+     * from this address.
+     */
+    private fun netflixTitle(id: String): NetflixTitle? {
+        val response = get(noFollowClient, "https://www.netflix.com/title/$id") ?: return null
+        return response.use { res ->
+            val location = res.header("Location").orEmpty()
+            val region = NETFLIX_REGION.find(location)?.groupValues?.get(1)?.uppercase()
+            val playable = res.code in 300..399 && location.contains("/title/$id")
+            NetflixTitle(res.code, playable, region)
+        }
     }
 
     private fun checkDisney(target: ProbeTarget, start: Long): ProbeResult {
@@ -221,7 +275,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         val response = get(followClient, "https://www.youtube.com/premium")
             ?: return target.done(start, ProbeStatus.FAILED)
         response.use { res ->
-            if (res.request.url.toString().contains("sorry.google.com")) {
+            if (isGoogleAbuseLocation(res.request.url.toString())) {
                 return target.done(start, ProbeStatus.BLOCKED)
             }
             val body = readBody(res, 150 * 1024)
@@ -260,11 +314,19 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
     }
 
     private fun checkGemini(target: ProbeTarget, start: Long): ProbeResult {
+        // An address Google distrusts is answered with a redirect to its abuse interstitial
+        // (`www.google.com/sorry/index`), which sends the client straight back to Gemini, so a
+        // redirect-following request never terminates. Inspect the first hop instead.
+        get(noFollowClient, "https://gemini.google.com/")?.use { res ->
+            if (isGoogleAbuseLocation(res.header("Location"))) {
+                return target.done(start, ProbeStatus.BLOCKED)
+            }
+        }
         val response = get(followClient, "https://gemini.google.com/")
             ?: return target.done(start, ProbeStatus.FAILED)
         response.use { res ->
             val finalUrl = res.request.url.toString()
-            if (finalUrl.contains("sorry.google.com")) {
+            if (isGoogleAbuseLocation(finalUrl)) {
                 return target.done(start, ProbeStatus.BLOCKED)
             }
             val body = readBody(res, 200 * 1024)
@@ -392,8 +454,14 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
 
     // --- Helpers ------------------------------------------------------------
 
-    private fun get(client: OkHttpClient, url: String): Response? = runCatching {
-        client.newCall(request(url).get().build()).execute()
+    private fun get(
+        client: OkHttpClient,
+        url: String,
+        headers: Map<String, String> = emptyMap()
+    ): Response? = runCatching {
+        val builder = request(url).get()
+        headers.forEach { (name, value) -> builder.header(name, value) }
+        client.newCall(builder.build()).execute()
     }.getOrNull()
 
     private fun head(client: OkHttpClient, url: String): Response? = runCatching {
@@ -416,6 +484,54 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
             buffer.write(chunk, read)
         }
         return buffer.readUtf8()
+    }
+
+    /** The fields a Cloudflare trace body carries that the cards show. */
+    internal data class TraceInfo(val ip: String?, val loc: String?, val colo: String?, val warp: Boolean)
+
+    /**
+     * Parses a `/cdn-cgi/trace` body. A response that is not 2xx/3xx, or that carries an HTML
+     * page instead of the key=value body, yields an all-null result — which callers read as
+     * "this tracer does not apply to this domain" rather than as a verdict.
+     */
+    internal fun parseTrace(code: Int, body: String, cfRay: String?): TraceInfo {
+        var ip: String? = null
+        var loc: String? = null
+        var colo: String? = null
+        var warp = false
+        if (code in 200..399 && body.isNotEmpty() && !body.contains("<!DOCTYPE")) {
+            body.lineSequence().forEach { line ->
+                val i = line.indexOf('=')
+                if (i > 0) {
+                    when (line.take(i).trim()) {
+                        "ip" -> ip = line.substring(i + 1).trim()
+                        "loc" -> loc = line.substring(i + 1).trim()
+                        "colo" -> colo = line.substring(i + 1).trim()
+                        "warp" -> warp = line.substring(i + 1).trim() != "off"
+                    }
+                }
+            }
+        }
+        return TraceInfo(ip, loc, colo ?: coloFromRay(cfRay), warp)
+    }
+
+    /**
+     * Google's anti-abuse interstitial, which it serves in place of the page that was asked for
+     * once it decides the request's address looks like a proxy or a bot. It moved from
+     * `sorry.google.com` to `www.google.com/sorry/index`, so both spellings have to be matched.
+     */
+    internal fun isGoogleAbuseLocation(location: String?): Boolean =
+        location != null &&
+            (location.contains("google.com/sorry") || location.contains("sorry.google.com"))
+
+    /**
+     * The two endpoints [OI] exposes disagree in a way that names a partial verdict: when only
+     * one of them objects, the platform is reachable from one surface but not the other.
+     */
+    internal fun openAiStatus(unsupportedCountry: Boolean, vpnDetected: Boolean): ProbeStatus = when {
+        unsupportedCountry && vpnDetected -> ProbeStatus.BLOCKED
+        unsupportedCountry || vpnDetected -> ProbeStatus.LIMITED
+        else -> ProbeStatus.UNLOCKED
     }
 
     private fun coloFromRay(ray: String?): String? {
@@ -446,6 +562,16 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         /** Minimum gap between reporting two samples, so the dots don't pop in a burst. */
         const val SAMPLE_INTERVAL_MS = 300L
 
+        /**
+         * Netflix's own self-test title ("Test Patterns"): it plays in every region that carries
+         * the service, so it answers "does Netflix exist where this egress sits" on its own.
+         */
+        const val NETFLIX_AREA_TITLE = "80018499"
+
+        /** A licensed title ("Breaking Bad"): it plays only where the catalogue is not originals-only. */
+        const val NETFLIX_LICENSED_TITLE = "70143836"
+
+        /** Captures the region out of `Location: .../<region>-<lang>/title/<id>`, dropping the language. */
         val NETFLIX_REGION = Regex("netflix\\.com/([a-z]{2})(?:-[a-z]{2})?/title/")
         val SPOTIFY_REGION = Regex("spotify\\.com/([a-z]{2})(?:-[a-z]{2})?/")
         val GEO_COUNTRY_REGEX = Regex("geoCountry\"?\\s*:\\s*\"([A-Z]{2})\"")
@@ -464,6 +590,42 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
 
         /** Regions the page offers, listed as `"url":"/xx/xx"` paths in the body. */
         val HBO_COUNTRY_URL = Regex("\"url\":\"/([a-z]{2})/[a-z]{2}\"")
+
+        /** Trace used for [OI]'s region and egress address; its verdict comes from the endpoints. */
+        const val OPENAI_TRACE_URL = "https://chatgpt.com/cdn-cgi/trace"
+
+        /** Reports an unsupported country in the body, as `unsupported_country_region_territory`. */
+        const val OPENAI_COMPLIANCE_URL = "https://api.openai.com/compliance/cookie_requirements"
+
+        /** Reports a detected VPN in the body; the two endpoints disagree on purpose. */
+        const val OPENAI_IOS_URL = "https://ios.chat.openai.com/"
+
+        /** Enough of a marker response to hold its verdict keyword. */
+        const val OPENAI_MARKER_BYTES = 8 * 1024
+
+        /**
+         * The compliance endpoint answers differently without these, so they are part of the
+         * probe rather than incidental: it expects a platform.openai.com browser context.
+         */
+        val OPENAI_COMPLIANCE_HEADERS = mapOf(
+            "accept" to "*/*",
+            "authorization" to "Bearer null",
+            "content-type" to "application/json",
+            "origin" to "https://platform.openai.com",
+            "referer" to "https://platform.openai.com/",
+            "sec-fetch-dest" to "empty",
+            "sec-fetch-mode" to "cors",
+            "sec-fetch-site" to "same-site"
+        )
+
+        val OPENAI_IOS_HEADERS = mapOf(
+            "accept" to "*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "sec-fetch-dest" to "document",
+            "sec-fetch-mode" to "navigate",
+            "sec-fetch-site" to "none",
+            "sec-fetch-user" to "?1",
+            "upgrade-insecure-requests" to "1"
+        )
 
         val GEMINI_UNSUPPORTED = setOf(
             "CN", "CHN", "MO", "MAC", "RU", "RUS", "BY", "BLR", "IR", "IRN",

@@ -5,11 +5,12 @@ enum class ProbeStatus { UNLOCKED, LIMITED, FLAGGED, BLOCKED, FAILED }
 /**
  * Which routine probes a platform.
  *
- * [SIMPLE] reports reachability of the platform's own site; [HBO] is the region-unlock check
- * for Max, which is not Cloudflare-fronted and so cannot use [TRACE]; [PING] is reachability
- * only, for platforms with no established unlock criterion to check against.
+ * [SIMPLE] reports reachability of the platform's own site; [OPENAI] asks [OI]'s own endpoints
+ * instead of comparing the egress region against a list; [HBO] is the region-unlock check for
+ * Max, which is not Cloudflare-fronted and so cannot use [TRACE]; [PING] is reachability only,
+ * for platforms with no established unlock criterion to check against.
  */
-enum class ProbeKind { TRACE, NETFLIX, DISNEY, YOUTUBE, SPOTIFY, GEMINI, GITHUB, REDDIT, TIKTOK, SIMPLE, HBO, PING }
+enum class ProbeKind { TRACE, OPENAI, NETFLIX, DISNEY, YOUTUBE, SPOTIFY, GEMINI, GITHUB, REDDIT, TIKTOK, SIMPLE, HBO, PING }
 
 data class ProbeTarget(
     val name: String,
