@@ -299,9 +299,11 @@ private fun PlatformCard(
             }
 
             // Fixed slots that fill in as each sample arrives, so the dots "load" one by one.
-            // A failed probe never samples, so its slots stay invisible but still hold the row.
-            val showSlots = samples.isNotEmpty() ||
-                (result != null && result.status != ProbeStatus.FAILED)
+            // A failed or blocked probe shows none: the slots stay invisible but still hold
+            // the row, keeping every card in the grid the same height.
+            val showSlots = result?.status != ProbeStatus.FAILED &&
+                result?.status != ProbeStatus.BLOCKED &&
+                (samples.isNotEmpty() || result != null)
             Spacer(Modifier.height(5.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 repeat(LATENCY_SAMPLE_COUNT) { index ->
@@ -365,7 +367,14 @@ private fun StatusRow(result: ProbeResult?, active: Boolean, avgLatency: Long?, 
             .heightIn(min = minHeight),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (result == null) {
+        // A re-probe of a settled unfavourable row is still "in progress": show the same
+        // pending form as a first-time probe, so the stale verdict and its retry button are
+        // both replaced by the spinner rather than sitting next to it. This must cover every
+        // status that offers a retry (FAILED and BLOCKED), or tapping retry would do nothing.
+        val retryable = result != null &&
+            (result.status == ProbeStatus.FAILED || result.status == ProbeStatus.BLOCKED)
+        val pending = result == null || (active && retryable)
+        if (pending) {
             if (active) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
@@ -420,7 +429,12 @@ private fun StatusRow(result: ProbeResult?, active: Boolean, avgLatency: Long?, 
         Spacer(Modifier.width(7.dp))
         Text(label, color = color, fontSize = 13.sp, lineHeight = StatusRowHeight, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.weight(1f))
-        if (result.status == ProbeStatus.FAILED) {
+        if (result.status == ProbeStatus.FAILED || result.status == ProbeStatus.BLOCKED) {
+            // An active re-probe is handled by the pending branch above, so reaching here means
+            // the verdict is settled and the row can offer another attempt. BLOCKED counts as
+            // retryable because a 403 can be a passing rate-limit rather than a region verdict.
+            // No latency is shown: the request may well have answered quickly, and printing
+            // that number next to 不可用 reads as if the platform were responding normally.
             RetryButton(onRetry)
         } else {
             if (ms >= 0) Text("${ms}ms", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
