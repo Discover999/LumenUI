@@ -1,6 +1,7 @@
 package com.lumenui.app.ui.components
 
 import android.graphics.Rect
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -28,11 +29,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -57,12 +61,18 @@ import kotlinx.coroutines.launch
 /** Backdrop blur radius for the popup menus, in dp. */
 private val MENU_BLUR = 18.dp
 
+/** How long an anchored menu takes to grow and fade in when it opens. */
+private const val MENU_OPEN_MS = 140
+
 /** Backdrop blur radius for the full-screen dialog background, in dp. */
 private val DIALOG_BLUR = 24.dp
 
-/** How long the blurred backdrop takes to fade in once it is captured. Kept short so the
- * opaque-to-translucent hand-off reads as instant rather than as a visible fade. */
-private const val BACKDROP_FADE_MS = 0
+/**
+ * How long the blurred backdrop takes to fade in once it is captured. The surface renders
+ * opaque immediately and only turns translucent as the backdrop arrives, so opening never
+ * waits on the capture; a short fade keeps the hand-off from reading as a flicker.
+ */
+private const val BACKDROP_FADE_MS = 20
 
 /**
  * Rounded frosted-glass container used for the popup menus and dialog cards.
@@ -139,10 +149,15 @@ fun AnchoredGlassMenu(
     var backdrop by remember { mutableStateOf<ImageBitmap?>(null) }
     var requested by remember { mutableStateOf(false) }
 
+    val open = remember { Animatable(0f) }
     LaunchedEffect(expanded) {
         if (!expanded) {
             backdrop = null
             requested = false
+            open.snapTo(0f)
+        } else {
+            // Replays on every open, since the menu is only composed while expanded.
+            open.animateTo(1f, tween(durationMillis = MENU_OPEN_MS))
         }
     }
 
@@ -223,6 +238,16 @@ fun AnchoredGlassMenu(
                                     }
                                 }
                             }
+                        }
+                        .graphicsLayer {
+                            val progress = open.value
+                            alpha = progress
+                            // Grows out of the anchor side rather than from the centre, so the
+                            // menu reads as unfolding from the button that opened it.
+                            val origin = if (alignToAnchorEnd) 1f else 0f
+                            transformOrigin = TransformOrigin(origin, 0f)
+                            scaleX = 0.94f + 0.06f * progress
+                            scaleY = 0.94f + 0.06f * progress
                         },
                     backdrop = backdrop,
                     translucent = true,
@@ -259,10 +284,21 @@ fun GlassMenuItem(icon: ImageVector, title: String, onClick: () -> Unit) {
     }
 }
 
+/** How long the dialog card takes to grow and fade in when it opens. */
+private const val DIALOG_OPEN_MS = 160
+
 /**
- * Frosted modal dialog: blurs the whole window behind it (a snapshot, since the dialog is
- * its own window over the WebView) and floats a translucent [FrostedMenu] card on top, so
+ * Frosted modal dialog: captures the window behind it (a snapshot, since the dialog is its
+ * own window over the WebView) and floats a translucent [FrostedMenu] card on top, so
  * dialogs match the popup menus instead of using the plain Material surface.
+ *
+ * The platform's own background blur (`Window.setBackgroundBlurRadius`) is not used: it only
+ * engages for translucent windows and is unimplemented on some vendor ROMs, where it left the
+ * dialog with no frost at all.
+ *
+ * The card scales up and fades in over [DIALOG_OPEN_MS]. The dialog window itself appears at
+ * once, so a plain cut reads as a hard pop; the short entrance gives the eye something to
+ * follow and covers the frame where the new window is first composited.
  */
 @Composable
 fun GlassDialog(
@@ -274,22 +310,31 @@ fun GlassDialog(
     val activity = remember(view) { view.context.findActivity() }
     val density = LocalDensity.current
     val glass = LocalGlassColors.current
+    val blurRadiusPx = remember(density) { with(density) { DIALOG_BLUR.roundToPx() } }
     var backdrop by remember { mutableStateOf<ImageBitmap?>(null) }
     val backdropAlpha by animateFloatAsState(
         targetValue = if (backdrop != null) 1f else 0f,
         animationSpec = tween(durationMillis = BACKDROP_FADE_MS),
         label = "dialogBackdropAlpha"
     )
+    val open = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        open.animateTo(1f, tween(durationMillis = DIALOG_OPEN_MS))
+    }
 
     FullScreenDialog(onDismissRequest = onDismissRequest) {
+        // The dialog window is created and laid out on this same frame, so wait for it to
+        // settle before the (main-thread) full-screen capture, otherwise the copy competes
+        // with the window's first composition for the frame and the open visibly stutters.
         LaunchedEffect(activity) {
             val window = activity?.window ?: return@LaunchedEffect
+            withFrameNanos { }
             val decor = window.decorView
             backdrop = runCatching {
                 captureBlurredBackdrop(
                     window,
                     Rect(0, 0, decor.width, decor.height),
-                    with(density) { DIALOG_BLUR.toPx() }
+                    blurRadiusPx.toFloat()
                 )
             }.getOrNull()
         }
@@ -313,7 +358,13 @@ fun GlassDialog(
                 modifier = modifier
                     .align(Alignment.Center)
                     .padding(24.dp)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        val progress = open.value
+                        alpha = progress
+                        scaleX = 0.92f + 0.08f * progress
+                        scaleY = 0.92f + 0.08f * progress
+                    },
                 translucent = true,
                 content = content
             )
