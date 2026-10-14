@@ -9,6 +9,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Hosted runners are outside mainland China, where the aliyun mirrors can
+    # answer 502 Bad Gateway. Drop those repositories in CI via an init script
+    # so resolution goes straight to google() / mavenCentral().
+    env:
+      GRADLE_OPTS: "-I ${{ github.workspace }}/.github/ci-init.gradle"
     steps:
       - uses: actions/checkout@v7
 

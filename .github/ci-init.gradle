@@ -1,0 +1,27 @@
+// CI-only Gradle init script.
+//
+// GitHub-hosted runners sit outside mainland China, where maven.aliyun.com
+// intermittently answers 502 Bad Gateway. Because the aliyun mirrors are listed
+// ahead of google()/mavenCentral() in settings.gradle.kts, such a 502 is fatal
+// (Gradle does not fall through to the next repository for a failing POM
+// fetch). This script strips every aliyun-backed repository so CI resolves
+// straight from google() / mavenCentral() / gradlePluginPortal().
+//
+// It is wired in via GRADLE_OPTS="-I <repo>/.github/ci-init.gradle" in
+// .github/workflows/android.yml, so local builds are unaffected.
+
+def isAliyun = { repo ->
+    if (repo instanceof org.gradle.api.artifacts.repositories.MavenArtifactRepository) {
+        return repo.url != null && repo.url.host != null && repo.url.host.contains("aliyun")
+    }
+    return false
+}
+
+settingsEvaluated { settings ->
+    settings.pluginManagement.repositories.removeAll { isAliyun(it) }
+    settings.dependencyResolutionManagement.repositories.removeAll { isAliyun(it) }
+}
+
+allprojects {
+    repositories.removeAll { isAliyun(it) }
+}
