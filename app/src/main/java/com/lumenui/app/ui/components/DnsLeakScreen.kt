@@ -48,7 +48,6 @@ import com.composables.icons.lucide.RefreshCw
 import com.lumenui.app.data.DnsLeakNode
 import com.lumenui.app.data.DnsLeakResult
 import com.lumenui.app.ui.theme.LocalGlassColors
-import com.lumenui.app.ui.theme.SystemBarAppearance
 import com.lumenui.app.ui.theme.glassSurface
 import com.lumenui.app.ui.theme.rememberFrostNoise
 
@@ -61,8 +60,6 @@ fun DnsLeakScreen(
     onBack: () -> Unit,
     load: suspend () -> DnsLeakResult?
 ) {
-    // A dialog is its own window: drive its system bars from here so the icons follow the theme.
-    SystemBarAppearance()
     val glass = LocalGlassColors.current
     val noise = rememberFrostNoise()
 

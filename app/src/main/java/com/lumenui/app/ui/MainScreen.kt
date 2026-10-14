@@ -38,6 +38,7 @@ import com.lumenui.app.ui.components.ConnectivityScreen
 import com.lumenui.app.ui.components.ConnectivitySettingsDialog
 import com.lumenui.app.ui.components.DnsLeakScreen
 import com.lumenui.app.ui.components.FrostedTopBar
+import com.lumenui.app.ui.components.FullScreenDialog
 import com.lumenui.app.ui.components.GlassMenuItem
 import com.lumenui.app.ui.components.PanelWebView
 import com.lumenui.app.ui.components.SetupScreen
@@ -46,8 +47,6 @@ import com.lumenui.app.web.PanelAssets
 import com.lumenui.app.web.PanelController
 import com.lumenui.app.web.PanelUrls
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 
 @Composable
 fun MainScreen() {
@@ -214,13 +213,7 @@ fun MainScreen() {
 
     if (showConnectivity) {
         // Full-screen page in its own window, so it covers the WebView and blocks touches.
-        Dialog(
-            onDismissRequest = { showConnectivity = false },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false
-            )
-        ) {
+        FullScreenDialog(onDismissRequest = { showConnectivity = false }) {
             ConnectivityScreen(
                 targets = ConnectivityTargets.all.filter { it.name in selectedProbes },
                 running = connectivity.running,
@@ -248,13 +241,7 @@ fun MainScreen() {
 
     if (showDnsLeak) {
         // Full-screen page in its own window, so it covers the WebView and blocks touches.
-        Dialog(
-            onDismissRequest = { showDnsLeak = false },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false
-            )
-        ) {
+        FullScreenDialog(onDismissRequest = { showDnsLeak = false }) {
             DnsLeakScreen(
                 onBack = { showDnsLeak = false },
                 load = { app.container.dnsLeak.run() }

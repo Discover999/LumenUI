@@ -61,7 +61,6 @@ import com.lumenui.app.data.ProbeResult
 import com.lumenui.app.data.ProbeStatus
 import com.lumenui.app.data.ProbeTarget
 import com.lumenui.app.ui.theme.LocalGlassColors
-import com.lumenui.app.ui.theme.SystemBarAppearance
 import com.lumenui.app.ui.theme.glassSurface
 import com.lumenui.app.ui.theme.rememberFrostNoise
 
@@ -94,9 +93,6 @@ fun ConnectivityScreen(
     onSettings: () -> Unit,
     onRetry: (ProbeTarget) -> Unit
 ) {
-    // A dialog is its own window: drive its system bars from here so the status-bar icons
-    // keep following the theme (the activity-level call does not reach this window).
-    SystemBarAppearance()
     val glass = LocalGlassColors.current
     val noise = rememberFrostNoise()
     val total = targets.size
