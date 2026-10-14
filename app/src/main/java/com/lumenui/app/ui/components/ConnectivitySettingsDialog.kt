@@ -3,18 +3,20 @@ package com.lumenui.app.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -22,9 +24,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.composables.icons.lucide.Circle
+import com.composables.icons.lucide.CircleCheck
+import com.composables.icons.lucide.Lucide
 import com.lumenui.app.data.ConnectivityTargets
 import com.lumenui.app.ui.theme.LocalGlassColors
 
@@ -89,20 +96,53 @@ fun ConnectivitySettingsDialog(
                     )
                     targets.forEach { target ->
                         val checked = target.name in selected
+                        val (brandIcon, accent) = visualPainter(target.name)
                         Row(
                             Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(9.dp))
-                                .background(if (checked) glass.buttonBg else androidx.compose.ui.graphics.Color.Transparent)
+                                .background(if (checked) glass.buttonBg else Color.Transparent)
                                 .clickable { onToggle(target.name) }
-                                .padding(end = 10.dp),
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Checkbox(checked = checked, onCheckedChange = { onToggle(target.name) })
+                            // Same brand mark and accent the platform shows on its result card,
+                            // so the picker and the test read as the same list of targets.
+                            Box(
+                                Modifier
+                                    .size(24.dp)
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(accent.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    brandIcon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = accent
+                                )
+                            }
+                            Spacer(Modifier.width(10.dp))
                             Text(
                                 text = target.name,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 13.5.sp
+                                fontSize = 13.5.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Icon(
+                                imageVector = if (checked) Lucide.CircleCheck else Lucide.Circle,
+                                contentDescription = null,
+                                modifier = Modifier.size(19.dp),
+                                // One accent for every row: per-target brand colours made the
+                                // column of checks read as noise rather than as a single state.
+                                tint = if (checked) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    glass.border
+                                }
                             )
                         }
                     }
