@@ -31,7 +31,7 @@ class MihomoApi(private val client: OkHttpClient) {
                 val latency = System.currentTimeMillis() - start
                 if (!response.isSuccessful) return@withContext Probe(false, latency)
                 val version = runCatching {
-                    json.parseToJsonElement(response.body?.string().orEmpty()).jsonObject["version"]
+                    json.parseToJsonElement(response.body.string()).jsonObject["version"]
                         ?.jsonPrimitive?.contentOrNull
                 }.getOrNull()
                 Probe(true, latency, version)

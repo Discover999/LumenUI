@@ -46,7 +46,7 @@ class HttpIpReputationApi(private val client: OkHttpClient) : IpReputationApi {
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext null
-                val parsed = json.decodeFromString<IpReputation>(response.body?.string().orEmpty())
+                val parsed = json.decodeFromString<IpReputation>(response.body.string())
                 parsed.takeIf { it.status == "success" }
             }
         }.getOrElse { error ->
