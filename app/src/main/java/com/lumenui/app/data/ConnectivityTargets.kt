@@ -48,6 +48,9 @@ object ConnectivityTargets {
         ProbeTarget("Spotify", STREAMING, ProbeKind.SPOTIFY),
         ProbeTarget("TikTok", STREAMING, ProbeKind.TIKTOK),
         trace("Crunchyroll", STREAMING, "crunchyroll.com"),
+        ProbeTarget("HBO Max", STREAMING, ProbeKind.HBO),
+        ProbeTarget("Twitch", STREAMING, ProbeKind.PING, url = "https://www.twitch.tv/"),
+        ProbeTarget("Apple TV+", STREAMING, ProbeKind.PING, url = "https://tv.apple.com/"),
 
         // Common & developer
         simple("Google", COMMON, "https://www.google.com/generate_204"),
@@ -81,6 +84,8 @@ object ConnectivityTargets {
         trace("Epic Games", GAMING, "store.epicgames.com"),
         trace("Ubisoft", GAMING, "store.ubisoft.com"),
         trace("Humble Bundle", GAMING, "humblebundle.com"),
+        ProbeTarget("PlayStation", GAMING, ProbeKind.PING, url = "https://www.playstation.com/"),
+        ProbeTarget("Battle.net", GAMING, ProbeKind.PING, url = "https://www.battle.net/"),
 
         // Crypto / payments
         trace("Coinbase", CRYPTO, "www.coinbase.com"),

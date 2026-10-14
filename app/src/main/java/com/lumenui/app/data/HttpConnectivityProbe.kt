@@ -107,6 +107,8 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         ProbeKind.GITHUB -> "https://github.com/"
         ProbeKind.REDDIT -> "https://www.reddit.com/"
         ProbeKind.TIKTOK -> "https://perfops1.byteperf.com/500b-bench.jpg"
+        ProbeKind.HBO -> target.url.ifEmpty { "https://www.hbomax.com/" }
+        ProbeKind.PING -> target.url.ifEmpty { "https://${target.domain}/" }
     }
 
     private fun check(target: ProbeTarget, start: Long): ProbeResult = when (target.kind) {
@@ -120,6 +122,8 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         ProbeKind.REDDIT -> checkReddit(target, start)
         ProbeKind.TIKTOK -> checkTikTok(target, start)
         ProbeKind.SIMPLE -> checkSimple(target, start)
+        ProbeKind.HBO -> checkHbo(target, start)
+        ProbeKind.PING -> checkPing(target, start)
     }
 
     private fun ProbeTarget.done(start: Long, status: ProbeStatus, region: String? = null, colo: String? = null, ip: String? = null, warp: Boolean = false) =
@@ -342,6 +346,50 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         }
     }
 
+    /**
+     * Reachability-only probe. Reports UNLOCKED when the site answers and BLOCKED when it does
+     * not, and deliberately makes no claim about region availability — there is no established
+     * criterion for these platforms, so calling a reachable site "available" would be a guess.
+     */
+    private fun checkPing(target: ProbeTarget, start: Long): ProbeResult {
+        val url = sampleUrl(target) ?: return target.done(start, ProbeStatus.FAILED)
+        val response = get(followClient, url) ?: return target.done(start, ProbeStatus.FAILED)
+        response.use { res ->
+            val status = if (res.code in 200..399) ProbeStatus.UNLOCKED else ProbeStatus.BLOCKED
+            return target.done(start, status)
+        }
+    }
+
+    /**
+     * HBO Max region-unlock check, following RegionRestrictionCheck: request the site root,
+     * then compare the region the edge reports against the list of regions the page offers.
+     *
+     * The edge names the viewer's region in a `Set-Cookie: countryCode=XX` (not a plain
+     * `countryCode` header, and not in the body), so the cookies must be scanned rather than
+     * a single header read — reading `header("countryCode")` always misses it.
+     */
+    private fun checkHbo(target: ProbeTarget, start: Long): ProbeResult {
+        val url = target.url.ifEmpty { "https://www.hbomax.com/" }
+        val response = get(followClient, url) ?: return target.done(start, ProbeStatus.FAILED)
+        response.use { res ->
+            val region = res.headers("Set-Cookie")
+                .firstNotNullOfOrNull { HBO_COUNTRY_COOKIE.find(it)?.groupValues?.get(1) }
+                ?.uppercase()
+            if (region == null) {
+                // Reachable but the edge did not name a region, so availability cannot be judged.
+                // Report the failure without a region rather than inventing one.
+                return target.done(start, ProbeStatus.BLOCKED)
+            }
+            val body = runCatching { res.body.string() }.getOrDefault("")
+            val offered = HBO_COUNTRY_URL.findAll(body)
+                .map { it.groupValues[1].uppercase() }
+                .toSet() + "US"
+            val status = if (region in offered) ProbeStatus.UNLOCKED else ProbeStatus.BLOCKED
+            // The region is reported either way, so a blocked card still shows where it was seen.
+            return target.done(start, status, region)
+        }
+    }
+
     // --- Helpers ------------------------------------------------------------
 
     private fun get(client: OkHttpClient, url: String): Response? = runCatching {
@@ -407,6 +455,15 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         val GEMINI_REGION_ALT_REGEX = Regex("\\[1,null,null,\\d+,\\d+,\"([A-Z]{3})\"")
         val REDDIT_POP_REGEX = Regex("p=([A-Z]{3})")
         val TIKTOK_VIA_REGEX = Regex("oversea-([A-Z]{2})-", RegexOption.IGNORE_CASE)
+
+        /**
+         * The viewer's region, carried as `countryCode=XX` inside a `Set-Cookie` header. The
+         * key is anchored so the match cannot land on the leading letters of `countryCode`.
+         */
+        val HBO_COUNTRY_COOKIE = Regex("countryCode=([A-Za-z]{2})")
+
+        /** Regions the page offers, listed as `"url":"/xx/xx"` paths in the body. */
+        val HBO_COUNTRY_URL = Regex("\"url\":\"/([a-z]{2})/[a-z]{2}\"")
 
         val GEMINI_UNSUPPORTED = setOf(
             "CN", "CHN", "MO", "MAC", "RU", "RUS", "BY", "BLR", "IR", "IRN",

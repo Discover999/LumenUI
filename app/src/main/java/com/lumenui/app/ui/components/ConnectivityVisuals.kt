@@ -56,7 +56,9 @@ import com.lumenui.app.R
 import com.lumenui.app.data.ProbeStatus
 import compose.icons.SimpleIcons
 import compose.icons.simpleicons.Apple
+import compose.icons.simpleicons.Appletv
 import compose.icons.simpleicons.Baidu
+import compose.icons.simpleicons.BattleDotNet
 import compose.icons.simpleicons.Bilibili
 import compose.icons.simpleicons.Coinbase
 import compose.icons.simpleicons.Crunchyroll
@@ -65,6 +67,7 @@ import compose.icons.simpleicons.Epicgames
 import compose.icons.simpleicons.Github
 import compose.icons.simpleicons.Gitlab
 import compose.icons.simpleicons.Google
+import compose.icons.simpleicons.Hbo
 import compose.icons.simpleicons.Humblebundle
 import compose.icons.simpleicons.Medium
 import compose.icons.simpleicons.Netflix
@@ -72,6 +75,7 @@ import compose.icons.simpleicons.NodeDotJs
 import compose.icons.simpleicons.Npm
 import compose.icons.simpleicons.Openai
 import compose.icons.simpleicons.Paypal
+import compose.icons.simpleicons.Playstation
 import compose.icons.simpleicons.Quora
 import compose.icons.simpleicons.Reddit
 import compose.icons.simpleicons.Spotify
@@ -80,6 +84,7 @@ import compose.icons.simpleicons.Steam
 import compose.icons.simpleicons.Telegram
 import compose.icons.simpleicons.Tencentqq
 import compose.icons.simpleicons.Tiktok
+import compose.icons.simpleicons.Twitch
 import compose.icons.simpleicons.Ubisoft
 import compose.icons.simpleicons.Wikipedia
 import compose.icons.simpleicons.Youtube
@@ -175,6 +180,11 @@ private fun brandVector(name: String): ImageVector? = when (name) {
     "Humble Bundle" -> SimpleIcons.Humblebundle
     "Coinbase" -> SimpleIcons.Coinbase
     "PayPal" -> SimpleIcons.Paypal
+    "HBO Max" -> SimpleIcons.Hbo
+    "Twitch" -> SimpleIcons.Twitch
+    "Apple TV+" -> SimpleIcons.Appletv
+    "PlayStation" -> SimpleIcons.Playstation
+    "Battle.net" -> SimpleIcons.BattleDotNet
     else -> null
 }
 
@@ -222,5 +232,10 @@ private fun fallbackVisual(name: String): PlatformVisual = when (name) {
     "OKX" -> PlatformVisual(Lucide.Wallet, Color(0xFFB0B0B0))
     "Kraken" -> PlatformVisual(Lucide.Waves, Color(0xFF5741D9))
     "PayPal" -> PlatformVisual(Lucide.CreditCard, Color(0xFF003087))
+    "HBO Max" -> PlatformVisual(Lucide.Film, Color(0xFF991EEB))
+    "Twitch" -> PlatformVisual(Lucide.Video, Color(0xFF9146FF))
+    "Apple TV+" -> PlatformVisual(Lucide.Apple, Color(0xFFB0B0B0))
+    "PlayStation" -> PlatformVisual(Lucide.Gamepad2, Color(0xFF0070D1))
+    "Battle.net" -> PlatformVisual(Lucide.Gamepad, Color(0xFF148EFF))
     else -> PlatformVisual(Lucide.Globe, MutedColor)
 }
