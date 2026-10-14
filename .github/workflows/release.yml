@@ -13,11 +13,6 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    # Hosted runners are outside mainland China, where the aliyun mirrors can
-    # answer 502 Bad Gateway. Drop those repositories in CI via an init script
-    # so resolution goes straight to google() / mavenCentral().
-    env:
-      GRADLE_OPTS: "-I ${{ github.workspace }}/.github/ci-init.gradle"
     steps:
       - uses: actions/checkout@v7
 
@@ -27,6 +22,15 @@ jobs:
           java-version: '17'
 
       - uses: gradle/actions/setup-gradle@v6
+
+      # Hosted runners are outside mainland China, where the aliyun mirrors can
+      # answer 502 Bad Gateway. Anything in $GRADLE_USER_HOME/init.d/ is applied
+      # automatically, so drop the aliyun repositories there instead of passing
+      # -I on every gradlew call.
+      - name: Skip aliyun mirrors in CI
+        run: |
+          mkdir -p "$GRADLE_USER_HOME/init.d"
+          cp .github/ci-init.gradle "$GRADLE_USER_HOME/init.d/ci-init.gradle"
 
       - uses: android-actions/setup-android@v4
 
