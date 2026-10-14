@@ -9,7 +9,7 @@
 [![Android CI](https://github.com/Discover999/LumenUI/actions/workflows/android.yml/badge.svg)](https://github.com/Discover999/LumenUI/actions/workflows/android.yml)
 [![Platform](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)](https://www.android.com)
 [![minSdk](https://img.shields.io/badge/minSdk-26-blue)](https://developer.android.com)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.1.20-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Compose-Material%203-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 

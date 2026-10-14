@@ -35,7 +35,7 @@ jobs:
       - uses: android-actions/setup-android@v4
 
       - name: Install SDK components
-        run: sdkmanager "platforms;android-36" "build-tools;36.1.0" "platform-tools"
+        run: sdkmanager "platforms;android-37.0" "build-tools;36.1.0" "platform-tools"
 
       # The keystore is base64-encoded in the RELEASE_KEYSTORE_BASE64 secret; write it
       # back to a file outside the checkout so it can never be staged by accident.
