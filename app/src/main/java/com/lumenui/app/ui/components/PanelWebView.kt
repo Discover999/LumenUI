@@ -74,6 +74,9 @@ fun PanelWebView(
                         isReload: Boolean
                     ) {
                         onCanGoBackChanged(view.canGoBack())
+                        // The page behind the glass surfaces navigated, so any cached
+                        // backdrop is now stale.
+                        clearBackdropCache()
                         // Switching backends inside the panel is an in-app navigation, so
                         // re-read its list/active here to keep the app's top bar in sync.
                         if (url != null && url.startsWith(PanelAssets.ORIGIN)) {
@@ -82,6 +85,8 @@ fun PanelWebView(
                     }
 
                     override fun onPageFinished(view: WebView, url: String?) {
+                        // The page has settled, so drop a backdrop captured mid-load.
+                        clearBackdropCache()
                         // Pull zashboard's own backend list whenever the panel (re)loads, so
                         // backends added inside the panel show up in the app switcher, and let
                         // the app apply its active backend from here on out.

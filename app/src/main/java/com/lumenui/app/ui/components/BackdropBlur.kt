@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.PixelCopy
 import android.view.Window
 import androidx.compose.ui.graphics.ImageBitmap
@@ -27,13 +28,55 @@ internal tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
+/** How long a captured backdrop stays valid before it has to be re-taken, in ms. */
+private const val BACKDROP_TTL_MS = 4_000L
+
+/** Upper bound on cached backdrops, so a full-screen capture cannot linger many times over. */
+private const val BACKDROP_CACHE_MAX = 4
+
+private class CachedBackdrop(val image: ImageBitmap, val capturedAtMs: Long)
+
+private val backdropCacheLock = Any()
+private val backdropCache = LinkedHashMap<String, CachedBackdrop>()
+
+/**
+ * Drops every cached backdrop. Call when the window behind the glass surfaces changes
+ * (a panel navigation, reload or backend switch) so a stale snapshot is never reused.
+ */
+fun clearBackdropCache() {
+    synchronized(backdropCacheLock) { backdropCache.clear() }
+}
+
+private fun cacheKey(src: Rect, radiusPx: Float): String =
+    "${src.left},${src.top},${src.width()}x${src.height()}@$radiusPx"
+
+private fun readBackdrop(key: String): ImageBitmap? = synchronized(backdropCacheLock) {
+    val entry = backdropCache.remove(key) ?: return@synchronized null
+    if (SystemClock.uptimeMillis() - entry.capturedAtMs > BACKDROP_TTL_MS) {
+        return@synchronized null
+    }
+    // Re-insert so the most recently used entries survive eviction.
+    backdropCache[key] = entry
+    entry.image
+}
+
+private fun writeBackdrop(key: String, image: ImageBitmap) = synchronized(backdropCacheLock) {
+    backdropCache.remove(key)
+    backdropCache[key] = CachedBackdrop(image, SystemClock.uptimeMillis())
+    while (backdropCache.size > BACKDROP_CACHE_MAX) {
+        val oldest = backdropCache.keys.firstOrNull() ?: break
+        backdropCache.remove(oldest)
+    }
+}
+
 /**
  * Captures [src] (a rect in [window]'s coordinate space) and returns a blurred copy.
  *
  * The popup menus live in their own window laid over the WebView, and Compose cannot
  * blur content it does not draw, so we snapshot the window pixels behind the menu and
- * blur them ourselves. Returns null when the copy fails; callers fall back to a plain
- * translucent material.
+ * blur them ourselves. A recent capture for the same rect and radius is reused, so
+ * re-opening a surface over an unchanged background skips both the copy and the blur.
+ * Returns null when the copy fails; callers fall back to a plain translucent material.
  */
 suspend fun captureBlurredBackdrop(
     window: Window,
@@ -41,6 +84,8 @@ suspend fun captureBlurredBackdrop(
     radiusPx: Float
 ): ImageBitmap? {
     if (src.width() <= 0 || src.height() <= 0) return null
+    val key = cacheKey(src, radiusPx)
+    readBackdrop(key)?.let { return it }
     val raw = createBitmap(src.width(), src.height())
     val ok = withContext(Dispatchers.Main) {
         suspendCancellableCoroutine { cont ->
@@ -61,16 +106,20 @@ suspend fun captureBlurredBackdrop(
         raw.recycle()
         return null
     }
-    return withContext(Dispatchers.Default) {
+    val blurred = withContext(Dispatchers.Default) {
         val out = blur(raw, radiusPx)
         raw.recycle()
         out.asImageBitmap()
     }
+    writeBackdrop(key, blurred)
+    return blurred
 }
 
 /**
  * Separable box blur, applied twice to approximate a gaussian. Work is done at a reduced
- * resolution first, which both speeds it up and smooths the result.
+ * resolution first, which both speeds it up and smooths the result. The blurred bitmap is
+ * returned at that smaller size and scaled up when it is drawn, which keeps a full-screen
+ * capture cheap both to compute and to hold on to.
  */
 private fun blur(src: Bitmap, radiusPx: Float): Bitmap {
     val scale = 0.4f
@@ -88,10 +137,7 @@ private fun blur(src: Bitmap, radiusPx: Float): Bitmap {
 
     val blurred = createBitmap(w, h)
     blurred.setPixels(px, 0, w, 0, 0, w, h)
-    if (w == src.width && h == src.height) return blurred
-    val out = blurred.scale(src.width, src.height)
-    blurred.recycle()
-    return out
+    return blurred
 }
 
 private fun boxBlurHorizontal(px: IntArray, w: Int, h: Int, r: Int) {

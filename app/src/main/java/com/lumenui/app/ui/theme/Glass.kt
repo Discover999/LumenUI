@@ -27,9 +27,17 @@ import kotlin.random.Random
 /**
  * A small tiled monochrome noise texture. Blended with a low alpha over the glass
  * gradient it gives the surface the fine grain that reads as "frosted".
+ *
+ * Generated once per size and shared by every surface, so re-opening a menu never pays
+ * to rebuild the texture on the UI thread.
  */
 @Composable
-fun rememberFrostNoise(size: Int = 140): ImageBitmap = remember(size) {
+fun rememberFrostNoise(size: Int = 140): ImageBitmap =
+    remember(size) { frostNoise.getOrPut(size) { buildFrostNoise(size) } }
+
+private val frostNoise = mutableMapOf<Int, ImageBitmap>()
+
+private fun buildFrostNoise(size: Int): ImageBitmap {
     val pixels = IntArray(size * size)
     val random = Random(1337)
     for (i in pixels.indices) {
@@ -38,7 +46,7 @@ fun rememberFrostNoise(size: Int = 140): ImageBitmap = remember(size) {
     }
     val bitmap = createBitmap(size, size)
     bitmap.setPixels(pixels, 0, size, 0, 0, size, size)
-    bitmap.asImageBitmap()
+    return bitmap.asImageBitmap()
 }
 
 /**
@@ -56,7 +64,8 @@ fun Modifier.glassSurface(
     bottomColor: Color = glass.barBottom,
     borderColor: Color = glass.border,
     bottomScrim: Boolean = true,
-    backdrop: ImageBitmap? = null
+    backdrop: ImageBitmap? = null,
+    backdropAlpha: Float = 1f
 ): Modifier = this
     .clip(shape)
     .drawWithCache {
@@ -70,6 +79,7 @@ fun Modifier.glassSurface(
                 drawImage(
                     image = it,
                     dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+                    alpha = backdropAlpha,
                     filterQuality = FilterQuality.Medium
                 )
             }

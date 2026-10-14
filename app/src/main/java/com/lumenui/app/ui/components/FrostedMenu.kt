@@ -1,6 +1,8 @@
 package com.lumenui.app.ui.components
 
 import android.graphics.Rect
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,16 +46,12 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.lumenui.app.ui.theme.LocalGlassColors
-import com.lumenui.app.ui.theme.SystemBarAppearance
 import com.lumenui.app.ui.theme.glassSurface
 import com.lumenui.app.ui.theme.rememberFrostNoise
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Backdrop blur radius for the popup menus, in dp. */
@@ -62,38 +60,36 @@ private val MENU_BLUR = 18.dp
 /** Backdrop blur radius for the full-screen dialog background, in dp. */
 private val DIALOG_BLUR = 24.dp
 
-/** Delay before falling back to the plain (un-blurred) material if capture is slow. */
-private const val BACKDROP_FALLBACK_MS = 150L
+/** How long the blurred backdrop takes to fade in once it is captured. Kept short so the
+ * opaque-to-translucent hand-off reads as instant rather than as a visible fade. */
+private const val BACKDROP_FADE_MS = 0
 
 /**
  * Rounded frosted-glass container used for the popup menus and dialog cards.
  *
  * When [translucent] is true the fill is a light tint that lets a blurred backdrop show
- * through; otherwise it is a near-opaque surface that must carry itself.
+ * through; otherwise it is a near-opaque surface that must carry itself. [backdropAlpha]
+ * drives the crossfade between the two so a surface can appear opaque immediately and
+ * turn translucent as the blurred backdrop fades in.
  */
 @Composable
 fun FrostedMenu(
     modifier: Modifier = Modifier,
     backdrop: ImageBitmap? = null,
     translucent: Boolean = backdrop != null,
+    backdropAlpha: Float = if (translucent) 1f else 0f,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val glass = LocalGlassColors.current
     val noise = rememberFrostNoise()
     val shape = RoundedCornerShape(16.dp)
 
-    val topAlpha = when {
-        translucent && glass.isDark -> 0.46f
-        translucent -> 0.58f
-        glass.isDark -> 0.96f
-        else -> 0.97f
-    }
-    val bottomAlpha = when {
-        translucent && glass.isDark -> 0.34f
-        translucent -> 0.46f
-        glass.isDark -> 0.90f
-        else -> 0.93f
-    }
+    val opaqueTop = if (glass.isDark) 0.96f else 0.97f
+    val opaqueBottom = if (glass.isDark) 0.90f else 0.93f
+    val clearTop = if (glass.isDark) 0.46f else 0.58f
+    val clearBottom = if (glass.isDark) 0.34f else 0.46f
+    val topAlpha = opaqueTop + (clearTop - opaqueTop) * backdropAlpha
+    val bottomAlpha = opaqueBottom + (clearBottom - opaqueBottom) * backdropAlpha
     val ring = if (glass.isDark) Color.White.copy(alpha = 0.20f) else Color(0xFF0B0E15).copy(alpha = 0.08f)
     // Lift the base tone toward white so the card reads as a light frosted haze.
     val cardTint = if (glass.isDark) lerp(glass.sheetBg, Color.White, 0.22f) else glass.sheetBg
@@ -108,6 +104,7 @@ fun FrostedMenu(
                 bottomColor = cardTint.copy(alpha = bottomAlpha),
                 borderColor = ring,
                 backdrop = backdrop,
+                backdropAlpha = backdropAlpha,
                 // zashboard's glass has a single uniform inset ring and no top-only
                 // highlight or bottom scrim, so the edge reads evenly all the way round.
                 topHighlight = false,
@@ -124,7 +121,9 @@ fun FrostedMenu(
  * clamped to the screen. Tapping outside dismisses.
  *
  * The menu is a separate window over the WebView, so on open we snapshot the window
- * pixels behind it and blur them, giving the same "frosted glass" look as the panel.
+ * pixels behind it and blur them. The menu itself renders immediately with an opaque
+ * material so opening never waits on the capture; the blurred backdrop fades in on top
+ * once it is ready.
  */
 @Composable
 fun AnchoredGlassMenu(
@@ -139,21 +138,19 @@ fun AnchoredGlassMenu(
     val scope = rememberCoroutineScope()
     var backdrop by remember { mutableStateOf<ImageBitmap?>(null) }
     var requested by remember { mutableStateOf(false) }
-    var ready by remember { mutableStateOf(false) }
 
     LaunchedEffect(expanded) {
         if (!expanded) {
             backdrop = null
             requested = false
-            ready = false
-        } else {
-            delay(BACKDROP_FALLBACK_MS)
-            ready = true
         }
     }
-    LaunchedEffect(backdrop) {
-        if (backdrop != null) ready = true
-    }
+
+    val backdropAlpha by animateFloatAsState(
+        targetValue = if (backdrop != null) 1f else 0f,
+        animationSpec = tween(durationMillis = BACKDROP_FADE_MS),
+        label = "menuBackdropAlpha"
+    )
 
     Box(modifier) {
         anchor()
@@ -197,16 +194,12 @@ fun AnchoredGlassMenu(
                 val blurPx = with(density) { MENU_BLUR.toPx() }
                 FrostedMenu(
                     modifier = menuModifier
-                        .alpha(if (ready) 1f else 0f)
                         .onGloballyPositioned { coords ->
                             val size = coords.size
                             if (!requested && backdrop == null && size.width > 0 && size.height > 0) {
                                 requested = true
                                 val activity = popupView.context.findActivity() ?: context.findActivity()
-                                if (activity == null) {
-                                    ready = true
-                                    return@onGloballyPositioned
-                                }
+                                if (activity == null) return@onGloballyPositioned
                                 val viewLoc = IntArray(2).also { popupView.getLocationOnScreen(it) }
                                 val winLoc = IntArray(2)
                                     .also { activity.window.decorView.getLocationOnScreen(it) }
@@ -232,6 +225,8 @@ fun AnchoredGlassMenu(
                             }
                         },
                     backdrop = backdrop,
+                    translucent = true,
+                    backdropAlpha = backdropAlpha,
                     content = menuContent
                 )
             }
@@ -280,13 +275,13 @@ fun GlassDialog(
     val density = LocalDensity.current
     val glass = LocalGlassColors.current
     var backdrop by remember { mutableStateOf<ImageBitmap?>(null) }
+    val backdropAlpha by animateFloatAsState(
+        targetValue = if (backdrop != null) 1f else 0f,
+        animationSpec = tween(durationMillis = BACKDROP_FADE_MS),
+        label = "dialogBackdropAlpha"
+    )
 
-    Dialog(
-        onDismissRequest = onDismissRequest,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        // The dialog is its own window, so its system bars have to be driven from in here.
-        SystemBarAppearance()
+    FullScreenDialog(onDismissRequest = onDismissRequest) {
         LaunchedEffect(activity) {
             val window = activity?.window ?: return@LaunchedEffect
             val decor = window.decorView
@@ -303,7 +298,9 @@ fun GlassDialog(
                 Image(
                     bitmap = it,
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(backdropAlpha),
                     contentScale = ContentScale.FillBounds
                 )
             }
