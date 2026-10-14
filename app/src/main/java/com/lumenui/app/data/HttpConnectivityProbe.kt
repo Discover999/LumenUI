@@ -363,7 +363,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         val buffer = Buffer()
         val chunk = Buffer()
         while (buffer.size < maxBytes) {
-            val read = runCatching { source.read(chunk, (maxBytes - buffer.size).toLong()) }.getOrNull() ?: break
+            val read = runCatching { source.read(chunk, maxBytes - buffer.size) }.getOrNull() ?: break
             if (read == -1L) break
             buffer.write(chunk, read)
         }
