@@ -91,7 +91,8 @@ fun ConnectivityScreen(
     onBack: () -> Unit,
     onRerun: () -> Unit,
     onSettings: () -> Unit,
-    onRetry: (ProbeTarget) -> Unit
+    onRetry: (ProbeTarget) -> Unit,
+    onOpenDetail: (ProbeTarget) -> Unit
 ) {
     val glass = LocalGlassColors.current
     val noise = rememberFrostNoise()
@@ -175,7 +176,9 @@ fun ConnectivityScreen(
                             samples = samples[target.name] ?: results[target.name]?.samples.orEmpty(),
                             active = running || target.name in retrying,
                             reputation = reputation,
-                            onRetry = { onRetry(target) }
+                            onRetry = { onRetry(target) },
+                            // Only a settled result has evidence to explain; a bare card has none.
+                            onOpenDetail = { if (results[target.name] != null) onOpenDetail(target) }
                         )
                     }
                 }
@@ -201,7 +204,8 @@ private fun PlatformCard(
     samples: List<Long>,
     active: Boolean,
     reputation: Map<String, IpReputation>,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onOpenDetail: () -> Unit
 ) {
     val glass = LocalGlassColors.current
     val (brandIcon, accent) = visualPainter(target.name)
@@ -213,6 +217,9 @@ private fun PlatformCard(
             .clip(shape)
             .background(glass.cardBg)
             .border(1.dp, glass.cardBorder, shape)
+            // A settled result opens its evidence page; an untested card has nothing to explain,
+            // so it stays inert rather than opening an empty sheet.
+            .clickable(enabled = result != null, onClick = onOpenDetail)
             .padding(horizontal = 12.dp, vertical = 11.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -353,7 +360,7 @@ private fun sampleColor(ms: Long): Color = when {
 }
 
 /** Mean of the successful samples, or null when none have landed (or all failed). */
-private fun averageLatency(samples: List<Long>): Long? {
+internal fun averageLatency(samples: List<Long>): Long? {
     val ok = samples.filter { it >= 0 }
     return if (ok.isEmpty()) null else ok.sum() / ok.size
 }
@@ -465,7 +472,7 @@ private fun RetryButton(onClick: () -> Unit) {
 
 /** Tiny pill tagging the egress IP as residential / mobile / datacenter / proxy. */
 @Composable
-private fun ReputationPill(rep: IpReputation) {
+internal fun ReputationPill(rep: IpReputation) {
     val color = when {
         rep.proxy -> BadColor
         rep.hosting -> WarnColor

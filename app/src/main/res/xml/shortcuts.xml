@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Long-press shortcuts. Each one opens the app on a full-screen page directly, so a
+    frequent action does not require the launcher, the top bar and a menu tap in between.
+    The action names are consumed in MainActivity.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="connectivity"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_globe"
+        android:shortcutShortLabel="@string/shortcut_connectivity_short"
+        android:shortcutLongLabel="@string/shortcut_connectivity_long">
+        <intent
+            android:action="com.lumenui.app.shortcut.CONNECTIVITY"
+            android:targetClass="com.lumenui.app.MainActivity"
+            android:targetPackage="com.lumenui.app" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="dns"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_radar"
+        android:shortcutShortLabel="@string/shortcut_dns_short"
+        android:shortcutLongLabel="@string/shortcut_dns_long">
+        <intent
+            android:action="com.lumenui.app.shortcut.DNS"
+            android:targetClass="com.lumenui.app.MainActivity"
+            android:targetPackage="com.lumenui.app" />
+    </shortcut>
+
+</shortcuts>

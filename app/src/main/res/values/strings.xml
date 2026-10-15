@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">LumenUI</string>
+
+    <string name="shortcut_connectivity_short">连通性测试</string>
+    <string name="shortcut_connectivity_long">检测各平台解锁状态</string>
+    <string name="shortcut_dns_short">DNS 泄露检测</string>
+    <string name="shortcut_dns_long">检查解析是否走隧道</string>
 </resources>

@@ -322,7 +322,11 @@ fun GlassDialog(
         open.animateTo(1f, tween(durationMillis = DIALOG_OPEN_MS))
     }
 
-    FullScreenDialog(onDismissRequest = onDismissRequest) {
+    FullScreenDialog(
+        visible = true,
+        onDismissRequest = onDismissRequest,
+        onClosed = {}
+    ) {
         // The dialog window is created and laid out on this same frame, so wait for it to
         // settle before the (main-thread) full-screen capture, otherwise the copy competes
         // with the window's first composition for the frame and the open visibly stutters.

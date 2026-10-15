@@ -26,6 +26,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.lumenui.app.LumenApp
 import com.lumenui.app.data.Backend
 import com.lumenui.app.data.ConnectivityTargets
+import com.lumenui.app.data.ProbeTarget
 import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Globe
 import com.composables.icons.lucide.Info
@@ -34,6 +35,7 @@ import com.composables.icons.lucide.Radar
 import com.lumenui.app.ui.components.AboutDialog
 import com.lumenui.app.ui.components.BackendEditDialog
 import com.lumenui.app.ui.components.BackendsMenuContent
+import com.lumenui.app.ui.components.ConnectivityDetailScreen
 import com.lumenui.app.ui.components.ConnectivityScreen
 import com.lumenui.app.ui.components.ConnectivitySettingsDialog
 import com.lumenui.app.ui.components.DnsLeakScreen
@@ -49,7 +51,11 @@ import com.lumenui.app.web.PanelUrls
 import androidx.compose.ui.platform.LocalContext
 
 @Composable
-fun MainScreen() {
+fun MainScreen(
+    /** A launcher shortcut asked for a specific page; consumed once via [onStartDestinationHandled]. */
+    startDestination: StartDestination? = null,
+    onStartDestinationHandled: () -> Unit = {}
+) {
     val app = LocalContext.current.applicationContext as LumenApp
     val viewModel: MainViewModel = viewModel(
         factory = viewModelFactory {
@@ -83,7 +89,15 @@ fun MainScreen() {
     var showConnectivity by remember { mutableStateOf(false) }
     var showDnsLeak by remember { mutableStateOf(false) }
     var showProbeSettings by remember { mutableStateOf(false) }
+    var detailTarget by remember { mutableStateOf<ProbeTarget?>(null) }
     var editing by remember { mutableStateOf<Backend?>(null) }
+
+    // The page being shown, kept until its slide-out finishes. The flags above drive the
+    // transition; these hold what the page renders, so closing a page still has content to
+    // animate and the detail page keeps the target it was opened for.
+    var connectivityPage by remember { mutableStateOf(false) }
+    var dnsPage by remember { mutableStateOf(false) }
+    var detailPage by remember { mutableStateOf<ProbeTarget?>(null) }
 
     // Hand the selected backend to the panel whenever it changes. Applied at most once
     // per backend; the initial application happens via onPanelReady once the page loads.
@@ -91,10 +105,49 @@ fun MainScreen() {
         current?.let(controller::connect)
     }
 
-    BackHandler(enabled = showConnectivity || showDnsLeak || canGoBack) {
+    // A launcher shortcut asked for a page: open it once the panel exists, then report it
+    // handled so returning to the app later does not re-open the same page.
+    LaunchedEffect(startDestination, current?.id) {
+        val destination = startDestination ?: return@LaunchedEffect
+        if (current == null) return@LaunchedEffect
+        when (destination) {
+            StartDestination.CONNECTIVITY -> {
+                connectivityPage = true
+                showConnectivity = true
+            }
+            StartDestination.DNS -> {
+                dnsPage = true
+                showDnsLeak = true
+            }
+        }
+        onStartDestinationHandled()
+    }
+
+    // A finished run's results expire after a TTL, which takes the evidence page with them.
+    // Gating on "there is a result to show" keeps the back press from being consumed by a
+    // page that is no longer on screen.
+    val detailVisible = detailTarget?.let { connectivity.results[it.name] != null } == true
+
+    // The page windows outlive the flags that opened them, so a close is only half done when
+    // the flag flips: the window is still sliding out and still on screen. Keeping back
+    // consumed until it reports closed stops a second back press from reaching the panel
+    // through a page the user can still see.
+    val connectivityClosing = connectivityPage && !showConnectivity
+    val dnsClosing = dnsPage && !showDnsLeak
+    val detailClosing = detailPage?.let { detailTarget?.name != it.name } == true
+
+    BackHandler(
+        enabled = showConnectivity || showDnsLeak || detailVisible ||
+            connectivityClosing || dnsClosing || detailClosing || canGoBack
+    ) {
         when {
+            // The detail page is on top of the connectivity page, so it closes first.
+            detailVisible -> detailTarget = null
+            detailClosing -> Unit
             showConnectivity -> showConnectivity = false
+            connectivityClosing -> Unit
             showDnsLeak -> showDnsLeak = false
+            dnsClosing -> Unit
             else -> controller.goBack()
         }
     }
@@ -159,10 +212,12 @@ fun MainScreen() {
                     actionMenu = { dismiss ->
                         GlassMenuItem(Lucide.Globe, "连通性测试") {
                             dismiss()
+                            connectivityPage = true
                             showConnectivity = true
                         }
                         GlassMenuItem(Lucide.Radar, "DNS 泄露检测") {
                             dismiss()
+                            dnsPage = true
                             showDnsLeak = true
                         }
                         GlassMenuItem(Lucide.ExternalLink, "在浏览器打开") {
@@ -211,9 +266,13 @@ fun MainScreen() {
         AboutDialog(onDismiss = { showAbout = false })
     }
 
-    if (showConnectivity) {
+    if (connectivityPage) {
         // Full-screen page in its own window, so it covers the WebView and blocks touches.
-        FullScreenDialog(onDismissRequest = { showConnectivity = false }) {
+        FullScreenDialog(
+            visible = showConnectivity,
+            onDismissRequest = { showConnectivity = false },
+            onClosed = { connectivityPage = false }
+        ) {
             ConnectivityScreen(
                 targets = ConnectivityTargets.all.filter { it.name in selectedProbes },
                 running = connectivity.running,
@@ -224,7 +283,11 @@ fun MainScreen() {
                 onBack = { showConnectivity = false },
                 onRerun = { viewModel.runConnectivity() },
                 onSettings = { showProbeSettings = true },
-                onRetry = { target -> viewModel.retryConnectivity(target) }
+                onRetry = { target -> viewModel.retryConnectivity(target) },
+                onOpenDetail = { target ->
+                    detailPage = target
+                    detailTarget = target
+                }
             )
         }
 
@@ -239,12 +302,37 @@ fun MainScreen() {
         }
     }
 
-    if (showDnsLeak) {
+    if (dnsPage) {
         // Full-screen page in its own window, so it covers the WebView and blocks touches.
-        FullScreenDialog(onDismissRequest = { showDnsLeak = false }) {
+        FullScreenDialog(
+            visible = showDnsLeak,
+            onDismissRequest = { showDnsLeak = false },
+            onClosed = { dnsPage = false }
+        ) {
             DnsLeakScreen(
                 onBack = { showDnsLeak = false },
                 load = { app.container.dnsLeak.run() }
+            )
+        }
+    }
+
+    // The evidence page is its own window on top of the connectivity page, so it gets the
+    // same edge-to-edge treatment and the BackHandler above closes it first. The result is
+    // looked up by the retained target, so the page keeps its content while it slides out
+    // even after the run's results age out.
+    val detail = detailPage
+    val detailResult = detail?.let { connectivity.results[it.name] }
+    if (detail != null && detailResult != null) {
+        FullScreenDialog(
+            visible = detailTarget?.name == detail.name,
+            onDismissRequest = { detailTarget = null },
+            onClosed = { detailPage = null }
+        ) {
+            ConnectivityDetailScreen(
+                target = detail,
+                result = detailResult,
+                reputation = detailResult.ip?.let { connectivity.reputation[it] },
+                onBack = { detailTarget = null }
             )
         }
     }
