@@ -2,7 +2,10 @@ package com.lumenui.app.ui.components
 
 import android.graphics.Rect
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -32,7 +35,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
@@ -284,8 +286,21 @@ fun GlassMenuItem(icon: ImageVector, title: String, onClick: () -> Unit) {
     }
 }
 
-/** How long the dialog card takes to grow and fade in when it opens. */
-private const val DIALOG_OPEN_MS = 160
+/** How far the dialog card is scaled down while the dialog is closed. */
+private const val DIALOG_SCALE_FROM = 0.92f
+
+/**
+ * Drives the whole dialog: the card's scale and fade, the dim, and the frost.
+ *
+ * A spring rather than a tween so the card eases into place instead of stopping on a fixed curve,
+ * and non-bouncy so it is set down rather than tossed — the overshoot a livelier spring gives
+ * reads as the dialog being thrown at the screen. Both directions use it, so the exit is the
+ * entrance played backwards.
+ */
+private val DIALOG_SPRING: SpringSpec<Float> = spring(
+    dampingRatio = Spring.DampingRatioNoBouncy,
+    stiffness = Spring.StiffnessMediumLow
+)
 
 /**
  * Frosted modal dialog: captures the window behind it (a snapshot, since the dialog is its
@@ -296,36 +311,57 @@ private const val DIALOG_OPEN_MS = 160
  * engages for translucent windows and is unimplemented on some vendor ROMs, where it left the
  * dialog with no frost at all.
  *
- * The card scales up and fades in over [DIALOG_OPEN_MS]. The dialog window itself appears at
- * once, so a plain cut reads as a hard pop; the short entrance gives the eye something to
- * follow and covers the frame where the new window is first composited.
+ * The card scales and fades where it stands, over a dim that fades in with it, so a modal reads
+ * as surfacing over the page rather than as a page arriving. [visible] is the caller's flag: the
+ * dialog keeps itself on screen after the flag drops so the same motion can play backwards, which
+ * is why the caller only has to raise and clear it — no second "closing" state on its side.
  */
 @Composable
 fun GlassDialog(
+    visible: Boolean,
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val open = remember { Animatable(0f) }
+    // The window has to outlive the flag for the card to have somewhere to shrink into.
+    var present by remember { mutableStateOf(false) }
+
+    LaunchedEffect(visible) {
+        if (visible) {
+            present = true
+            // The window is created on this frame, so wait for its first layout: otherwise the
+            // spring's first step is spent on a content box that has no size yet.
+            withFrameNanos { }
+            open.animateTo(1f, DIALOG_SPRING)
+        } else {
+            if (!present) return@LaunchedEffect
+            open.animateTo(0f, DIALOG_SPRING)
+            present = false
+        }
+    }
+
+    if (!present) return
+
     val view = LocalView.current
     val activity = remember(view) { view.context.findActivity() }
     val density = LocalDensity.current
     val glass = LocalGlassColors.current
     val blurRadiusPx = remember(density) { with(density) { DIALOG_BLUR.roundToPx() } }
+    // Remembered below the `present` gate, so a re-open never starts by showing the previous
+    // dialog's backdrop.
     var backdrop by remember { mutableStateOf<ImageBitmap?>(null) }
     val backdropAlpha by animateFloatAsState(
         targetValue = if (backdrop != null) 1f else 0f,
         animationSpec = tween(durationMillis = BACKDROP_FADE_MS),
         label = "dialogBackdropAlpha"
     )
-    val open = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        open.animateTo(1f, tween(durationMillis = DIALOG_OPEN_MS))
-    }
 
     FullScreenDialog(
         visible = true,
         onDismissRequest = onDismissRequest,
-        onClosed = {}
+        onClosed = {},
+        slide = false
     ) {
         // The dialog window is created and laid out on this same frame, so wait for it to
         // settle before the (main-thread) full-screen capture, otherwise the copy competes
@@ -347,15 +383,18 @@ fun GlassDialog(
                 Image(
                     bitmap = it,
                     contentDescription = null,
+                    // Fades in with the card, so the frost is part of the entrance instead of
+                    // arriving after it.
                     modifier = Modifier
                         .fillMaxSize()
-                        .alpha(backdropAlpha),
+                        .graphicsLayer { alpha = backdropAlpha * open.value },
                     contentScale = ContentScale.FillBounds
                 )
             }
             Box(
                 Modifier
                     .fillMaxSize()
+                    .graphicsLayer { alpha = open.value }
                     .background(Color.Black.copy(alpha = if (glass.isDark) 0.30f else 0.16f))
             )
             FrostedMenu(
@@ -366,8 +405,8 @@ fun GlassDialog(
                     .graphicsLayer {
                         val progress = open.value
                         alpha = progress
-                        scaleX = 0.92f + 0.08f * progress
-                        scaleY = 0.92f + 0.08f * progress
+                        scaleX = DIALOG_SCALE_FROM + (1f - DIALOG_SCALE_FROM) * progress
+                        scaleY = DIALOG_SCALE_FROM + (1f - DIALOG_SCALE_FROM) * progress
                     },
                 translucent = true,
                 content = content

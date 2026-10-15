@@ -250,21 +250,22 @@ fun MainScreen(
         }
     }
 
-    if (showEditor) {
-        BackendEditDialog(
-            initial = editing,
-            onSave = {
-                viewModel.upsertBackend(it)
-                controller.pushBackends(viewModel.backends.value)
-                showEditor = false
-            },
-            onDismiss = { showEditor = false }
-        )
-    }
+    // The dialogs are composed whether or not they are open, and are handed the flag the `if`
+    // around them used to carry. Each one holds its own window up until its exit has finished, so
+    // it has to still be in the composition at the moment the flag drops; a flag alone would be
+    // gone before the card had anywhere to shrink into.
+    BackendEditDialog(
+        visible = showEditor,
+        initial = editing,
+        onSave = {
+            viewModel.upsertBackend(it)
+            controller.pushBackends(viewModel.backends.value)
+            showEditor = false
+        },
+        onDismiss = { showEditor = false }
+    )
 
-    if (showAbout) {
-        AboutDialog(onDismiss = { showAbout = false })
-    }
+    AboutDialog(visible = showAbout, onDismiss = { showAbout = false })
 
     if (connectivityPage) {
         // Full-screen page in its own window, so it covers the WebView and blocks touches.
@@ -291,15 +292,14 @@ fun MainScreen(
             )
         }
 
-        if (showProbeSettings) {
-            ConnectivitySettingsDialog(
-                selected = selectedProbes,
-                onToggle = { viewModel.toggleConnectivityTarget(it) },
-                onSelectAll = { viewModel.selectAllConnectivityTargets() },
-                onSelectDefault = { viewModel.selectDefaultConnectivityTargets() },
-                onDismiss = { showProbeSettings = false }
-            )
-        }
+        ConnectivitySettingsDialog(
+            visible = showProbeSettings,
+            selected = selectedProbes,
+            onToggle = { viewModel.toggleConnectivityTarget(it) },
+            onSelectAll = { viewModel.selectAllConnectivityTargets() },
+            onSelectDefault = { viewModel.selectDefaultConnectivityTargets() },
+            onDismiss = { showProbeSettings = false }
+        )
     }
 
     if (dnsPage) {

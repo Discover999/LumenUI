@@ -41,6 +41,7 @@ import java.util.UUID
 
 @Composable
 fun BackendEditDialog(
+    visible: Boolean,
     initial: Backend?,
     onSave: (Backend) -> Unit,
     onDismiss: () -> Unit
@@ -55,7 +56,7 @@ fun BackendEditDialog(
     val portValid = port.toIntOrNull()?.let { it in 1..65535 } == true
     val canSave = host.isNotBlank() && portValid
 
-    GlassDialog(onDismissRequest = onDismiss) {
+    GlassDialog(visible = visible, onDismissRequest = onDismiss) {
         Column(
             Modifier
                 .fillMaxWidth()

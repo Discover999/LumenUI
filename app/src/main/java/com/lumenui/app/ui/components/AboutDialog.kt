@@ -48,11 +48,11 @@ private val MarkBar = Color(0xFF3D74E6)
 private val MarkTile = Color(0xFF9BA9BE)
 
 @Composable
-fun AboutDialog(onDismiss: () -> Unit) {
+fun AboutDialog(visible: Boolean, onDismiss: () -> Unit) {
     val glass = LocalGlassColors.current
     val context = LocalContext.current
 
-    GlassDialog(onDismissRequest = onDismiss) {
+    GlassDialog(visible = visible, onDismissRequest = onDismiss) {
         Column(
             Modifier
                 .fillMaxWidth()

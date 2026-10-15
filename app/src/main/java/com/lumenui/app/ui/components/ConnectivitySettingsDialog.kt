@@ -38,6 +38,7 @@ import com.lumenui.app.ui.theme.LocalGlassColors
 /** Lets the user pick which platforms the connectivity page tests. */
 @Composable
 fun ConnectivitySettingsDialog(
+    visible: Boolean,
     selected: Set<String>,
     onToggle: (String) -> Unit,
     onSelectAll: () -> Unit,
@@ -45,7 +46,7 @@ fun ConnectivitySettingsDialog(
     onDismiss: () -> Unit
 ) {
     val glass = LocalGlassColors.current
-    GlassDialog(onDismissRequest = onDismiss) {
+    GlassDialog(visible = visible, onDismissRequest = onDismiss) {
         Column(
             Modifier
                 .fillMaxWidth()
