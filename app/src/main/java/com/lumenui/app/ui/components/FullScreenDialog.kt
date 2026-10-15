@@ -3,7 +3,6 @@ package com.lumenui.app.ui.components
 import android.app.Dialog
 import android.view.Window
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
@@ -32,13 +31,28 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.lumenui.app.R
 import com.lumenui.app.ui.theme.LocalGlassColors
 
-/** How long a full-screen page takes to slide in or out. */
-private const val PAGE_SLIDE_IN_MS = 240
-private const val PAGE_SLIDE_OUT_MS = 190
+/**
+ * How long a full-screen page takes to slide, in either direction. One value for both: the same
+ * distance is travelled each way, so a difference between the two reads as the exit being a
+ * different motion rather than the same motion seen from the other end.
+ */
+private const val PAGE_SLIDE_MS = 240
 
-/** Where the page sits before it has slid in (0) and once it has settled (1). */
+/** Where the page rests while parked off to the right (0) and once it has slid into place (1). */
 private const val PAGE_PARKED = 0f
 private const val PAGE_SETTLED = 1f
+
+/**
+ * How opaque the page is while it sits parked off-screen. A fade from zero would make the page
+ * look like it is materialising, so the entrance rises from this floor instead of from nothing.
+ *
+ * The exit eases back down to the same floor, which is what keeps the two directions one motion
+ * seen from either end: fading further than this on the way out ends the travel before the
+ * animation does, so the exit reads as the shorter of the two. Ending on 0.35 is safe because
+ * the page is then a full width off to the right — it is not on screen on the frame the window
+ * is dismissed, so there is nothing left to cut.
+ */
+private const val PAGE_ALPHA_FLOOR = 0.35f
 
 /**
  * Full-screen dialog backed by our own [Dialog] window instead of Compose's, so it can use a
@@ -49,22 +63,28 @@ private const val PAGE_SETTLED = 1f
  * page has finished sliding out, so the caller can drop the instance it is holding. The window
  * is created before the flag turns false and disposed only after [onClosed], which is what
  * gives the exit animation somewhere to run — without it the window would vanish on the frame
- * the close was requested.
+ * the close was requested. With [slide] off there is no page motion to wait for, so a close is
+ * reported on the spot and the caller's own animation decides when the content is done.
  *
  * The content slides in from the right and back out to the right, which reads as a page push.
  * A full-screen surface has no anchor to grow out of, so a slide beats the scale the popup
- * menus use.
+ * menus use. [slide] off is for a surface that runs an entrance of its own — the glass dialogs
+ * scale where they stand — because a modal sliding in from the edge reads as a page arriving
+ * rather than as something surfacing over what is already there; the layer then stays put and the
+ * content owns both halves of its motion.
  *
- * The gesture is deliberately not wired into the platform's predictive back: on a ROM that
- * claims the edge swipe in its own window (ColorOS does, via ColorSideGestureLeft/Right) the
- * app never sees the drag, so the handler would silently do nothing. A plain slide that always
- * plays is preferable to a preview that only appears on some devices.
+ * The back gesture closes the page through the same path, and therefore plays the same slide —
+ * but only as a plain close: the drag itself is deliberately not wired into the platform's
+ * predictive back, because on a ROM that claims the edge swipe in its own window (ColorOS does,
+ * via ColorSideGestureLeft/Right) the app never sees the drag, so a preview would appear on some
+ * devices and silently do nothing on others.
  */
 @Composable
 fun FullScreenDialog(
     visible: Boolean,
     onDismissRequest: () -> Unit,
     onClosed: () -> Unit,
+    slide: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -79,8 +99,18 @@ fun FullScreenDialog(
     val currentTypography = rememberUpdatedState(MaterialTheme.typography)
     val currentShapes = rememberUpdatedState(MaterialTheme.shapes)
 
+    // The back gesture is answered by the dialog's own window, and [Dialog] answers a back by
+    // cancelling itself — which dismisses the window on the spot, so the slide-out would be drawn
+    // into a window that is already gone. That is the whole reason the gesture used to cut where
+    // the toolbar arrow, which only raises the flag, slid. Cancelling is therefore turned into
+    // the same request the two of them share, and the window lives on until the caller drops it
+    // when [onClosed] reports the slide-out finished.
     val dialog = remember {
-        Dialog(context, R.style.Theme_LumenUI_Dialog).apply {
+        object : Dialog(context, R.style.Theme_LumenUI_Dialog) {
+            override fun cancel() {
+                currentDismiss.value()
+            }
+        }.apply {
             setCanceledOnTouchOutside(true)
         }
     }
@@ -121,10 +151,11 @@ fun FullScreenDialog(
                         .fillMaxSize()
                         .graphicsLayer {
                             val p = progress.value
-                            // Only partially transparent, so the page stays legible as it
-                            // travels: it should read as moving, not fading into nothing.
-                            alpha = 0.35f + 0.65f * p
                             translationX = size.width * (1f - p)
+                            // One law in both directions, so the exit is the entrance seen
+                            // from the other end: the page stays legible while it travels
+                            // instead of fading into or out of nothing.
+                            alpha = PAGE_ALPHA_FLOOR + (1f - PAGE_ALPHA_FLOOR) * p
                         }
                 ) {
                     currentContent.value()
@@ -133,26 +164,36 @@ fun FullScreenDialog(
         }
     }
 
-    // Reveal once, when the page first appears. Waiting one frame lets the window finish its
-    // first layout, otherwise the slide's first step is spent on a view that has no size yet.
-    LaunchedEffect(dialog) {
-        withFrameNanos { }
-        progress.animateTo(
-            PAGE_SETTLED,
-            tween(durationMillis = PAGE_SLIDE_IN_MS, easing = LinearOutSlowInEasing)
-        )
-    }
-
-    // Retract on close, then hand the window back so the caller can drop it. Snapping to 0
-    // first keeps an immediate re-open from resuming a half-finished slide.
-    LaunchedEffect(dialog, visible) {
-        if (visible) return@LaunchedEffect
-        progress.snapTo(PAGE_PARKED)
-        progress.animateTo(
-            PAGE_SETTLED,
-            tween(durationMillis = PAGE_SLIDE_OUT_MS, easing = FastOutLinearInEasing)
-        )
-        currentClosed.value()
+    // One effect drives both directions. The entrance waits one frame so the window finishes its
+    // first layout, otherwise the slide's first step is spent on a view that has no size yet;
+    // the exit then hands the window back so the caller can drop it. Keeping both here, keyed on
+    // `visible`, is also what lets a re-open mid-slide-out restart the entrance from wherever the
+    // page is instead of leaving it stranded there.
+    LaunchedEffect(dialog, visible, slide) {
+        if (!slide) {
+            // Nothing to draw: the content runs its own entrance, so the layer stays parked where
+            // it stands and a close has no second phase left to wait for.
+            progress.snapTo(PAGE_SETTLED)
+            if (!visible) currentClosed.value()
+            return@LaunchedEffect
+        }
+        if (visible) {
+            withFrameNanos { }
+            progress.animateTo(
+                PAGE_SETTLED,
+                tween(durationMillis = PAGE_SLIDE_MS, easing = LinearOutSlowInEasing)
+            )
+        } else {
+            // Back out the way it came in: [PAGE_PARKED] is off to the right, so the page is
+            // pushed away rather than slid into place a second time. The same curve and duration
+            // as the entrance — the page is settling into its parked position, not being yanked
+            // off, so an accelerating curve would read as the motion running away.
+            progress.animateTo(
+                PAGE_PARKED,
+                tween(durationMillis = PAGE_SLIDE_MS, easing = LinearOutSlowInEasing)
+            )
+            currentClosed.value()
+        }
     }
 
     // The window is live, so re-apply the bar icon tint whenever the theme changes.
