@@ -8,6 +8,48 @@ import com.lumenui.app.data.ProbeTarget
 /** One labelled observation shown on a card's detail page. */
 internal data class EvidenceLine(val label: String, val value: String)
 
+/**
+ * The labels the detail page renders itself — in its verdict hero or one of its figure cards —
+ * named once so grouping never repeats them as a text row and a rename cannot leave the page
+ * looking for a label that moved.
+ */
+internal const val LABEL_PROBE_KIND = "探测方式"
+internal const val LABEL_CRITERION = "判定依据"
+internal const val LABEL_REGION = "出口地区"
+internal const val LABEL_EXIT_ADDRESS = "出口地址"
+internal const val LABEL_AVG_LATENCY = "平均延迟"
+internal const val LABEL_SAMPLES = "延迟样本"
+
+/** A titled group of observations, so the page reads as sections instead of one flat list. */
+internal data class EvidenceSection(val title: String, val lines: List<EvidenceLine>)
+
+private val CONSUMED_LABELS = setOf(
+    LABEL_PROBE_KIND, LABEL_CRITERION, LABEL_REGION,
+    LABEL_EXIT_ADDRESS, LABEL_AVG_LATENCY, LABEL_SAMPLES
+)
+
+/** Section order; a label with no section lands last under 其他 rather than being dropped. */
+private val SECTION_ORDER = listOf("目标")
+
+private val SECTION_OF = mapOf(
+    "探测域名" to "目标",
+    "探测地址" to "目标",
+    "受限地区" to "目标",
+    "备用域名" to "目标"
+)
+
+/**
+ * Groups the lines the page has no bespoke card for. The six it renders itself are left out, and
+ * any label without a section is filed under 其他 — so adding a line to [evidenceFor] can never
+ * make it silently vanish from the page.
+ */
+internal fun sectionsOf(lines: List<EvidenceLine>): List<EvidenceSection> =
+    lines
+        .filterNot { it.label in CONSUMED_LABELS }
+        .groupBy { SECTION_OF[it.label] ?: "其他" }
+        .map { (title, grouped) -> EvidenceSection(title, grouped) }
+        .sortedBy { SECTION_ORDER.indexOf(it.title).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE }
+
 /** How the probe reaches the platform, in the reader's terms. */
 internal fun kindLabel(kind: ProbeKind): String = when (kind) {
     ProbeKind.TRACE -> "Cloudflare trace"
@@ -36,21 +78,21 @@ internal fun kindLabel(kind: ProbeKind): String = when (kind) {
  */
 internal fun evidenceFor(target: ProbeTarget, result: ProbeResult): List<EvidenceLine> {
     val lines = mutableListOf<EvidenceLine>()
-    lines += EvidenceLine("探测方式", kindLabel(target.kind))
-    lines += EvidenceLine("判定依据", criterionFor(target, result))
+    lines += EvidenceLine(LABEL_PROBE_KIND, kindLabel(target.kind))
+    lines += EvidenceLine(LABEL_CRITERION, criterionFor(target, result))
     result.region?.let { region ->
         val colo = result.colo?.let { " · 边缘节点 $it" }.orEmpty()
-        lines += EvidenceLine("出口地区", region + colo)
+        lines += EvidenceLine(LABEL_REGION, region + colo)
     }
     result.ip?.let { ip ->
-        lines += EvidenceLine("出口地址", ip + if (result.isWarp) " · WARP" else "")
+        lines += EvidenceLine(LABEL_EXIT_ADDRESS, ip + if (result.isWarp) " · WARP" else "")
     }
     val successful = result.samples.filter { it >= 0 }
     if (successful.isNotEmpty()) {
-        lines += EvidenceLine("平均延迟", "${successful.sum() / successful.size}ms（${successful.size} 次成功）")
+        lines += EvidenceLine(LABEL_AVG_LATENCY, "${successful.sum() / successful.size}ms（${successful.size} 次成功）")
     }
     if (result.samples.isNotEmpty()) {
-        lines += EvidenceLine("延迟样本", result.samples.joinToString("  ") { if (it < 0) "失败" else "${it}ms" })
+        lines += EvidenceLine(LABEL_SAMPLES, result.samples.joinToString("  ") { if (it < 0) "失败" else "${it}ms" })
     }
     target.domain.takeIf { it.isNotBlank() }?.let { domain ->
         lines += EvidenceLine("探测域名", domain)

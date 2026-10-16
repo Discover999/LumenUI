@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,11 +40,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,8 +75,16 @@ private val IpRowHeight = 15.sp
 /** Vertical gap between the rows inside a card. */
 private val RowGap = 4.dp
 
-/** Diameter of one latency-sample dot. */
-private val SampleDotSize = 6.dp
+/** Latency chart: tallest bar, the stub a useful sample still draws, and an empty slot. */
+private val ChartMax = 22.dp
+private val ChartMin = 5.dp
+private val ChartEmpty = 4.dp
+
+/** The latency at which a bar fills the chart, matching the amber band's own threshold. */
+private const val ChartFullMs = 700f
+
+/** Order the summary line reads in, worst last. */
+private val SummaryOrder = listOf("可用", "受限", "不可用")
 
 /**
  * Full-screen connectivity / region-unlock page, laid out as a two-column card grid.
@@ -97,6 +107,8 @@ fun ConnectivityScreen(
     val glass = LocalGlassColors.current
     val noise = rememberFrostNoise()
     val total = targets.size
+    // Starting or re-running the whole batch is a real action, so it is confirmed by touch.
+    val runProbes = hapticOnClick(HapticFeedbackType.Confirm, onRerun)
 
     Box(
         Modifier
@@ -125,15 +137,26 @@ fun ConnectivityScreen(
                 ) {
                     GlassIconButton(Lucide.ArrowLeft, "返回", onBack)
                     Spacer(Modifier.width(10.dp))
-                    Text(
-                        text = "连通性测试",
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
+                    Column(Modifier.weight(1f)) {
+                        // Both lines set an explicit line height: text otherwise inherits the
+                        // body style's, which is far taller than these sizes and left a gap
+                        // between them big enough to read as two separate blocks.
+                        Text(
+                            text = "连通性测试",
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontSize = 15.sp,
+                            lineHeight = 19.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        // The run's own progress stays on this bar's right edge, so the verdict
+                        // counts take the title's second line only once a run has finished.
+                        if (!running && results.isNotEmpty()) {
+                            Spacer(Modifier.height(1.dp))
+                            VerdictCounts(results)
+                        }
+                    }
                     if (running) {
                         Text(
                             text = "${results.size}/$total",
@@ -144,9 +167,9 @@ fun ConnectivityScreen(
                     }
                     GlassIconButton(Lucide.SlidersHorizontal, "测试项设置", onSettings)
                     if (running || results.isNotEmpty()) {
-                        GlassIconButton(Lucide.RefreshCw, "重新测试", onRerun)
+                        GlassIconButton(Lucide.RefreshCw, "重新测试", runProbes)
                     } else {
-                        GlassIconButton(Lucide.Play, "开始测试", onRerun)
+                        GlassIconButton(Lucide.Play, "开始测试", runProbes)
                     }
                 }
             }
@@ -170,11 +193,19 @@ fun ConnectivityScreen(
                         )
                     }
                     items(items, key = { it.name }) { target ->
+                        val active = running || target.name in retrying
                         PlatformCard(
                             target = target,
                             result = results[target.name],
-                            samples = samples[target.name] ?: results[target.name]?.samples.orEmpty(),
-                            active = running || target.name in retrying,
+                            // While a probe is in flight the streamed list is the truth: the
+                            // fallback below would otherwise replay the failed run's samples as
+                            // if they were this run's.
+                            samples = if (active) {
+                                samples[target.name].orEmpty()
+                            } else {
+                                samples[target.name] ?: results[target.name]?.samples.orEmpty()
+                            },
+                            active = active,
                             reputation = reputation,
                             onRetry = { onRetry(target) },
                             // Only a settled result has evidence to explain; a bare card has none.
@@ -210,13 +241,26 @@ private fun PlatformCard(
     val glass = LocalGlassColors.current
     val (brandIcon, accent) = visualPainter(target.name)
     val shape = RoundedCornerShape(14.dp)
+    // A settled unfavourable row that is being re-probed is still "in progress", so the card
+    // works that out once and both the status row and the latency chart follow it — the two
+    // gates drifting apart is exactly what once made a retry tap look inert.
+    val retryable = result != null &&
+        (result.status == ProbeStatus.FAILED || result.status == ProbeStatus.BLOCKED)
+    val pending = result == null || (active && retryable)
+    // The verdict tints the outline, so a failing card can be picked out without reading it. A
+    // row that is being (re)probed takes the neutral border, because its verdict is no longer
+    // what the card is saying.
+    val outline = result
+        ?.takeIf { !pending }
+        ?.let { statusVisual(it.status, averageLatency(samples)).second.copy(alpha = 0.35f) }
+        ?: glass.cardBorder
 
     Column(
         Modifier
             .fillMaxWidth()
             .clip(shape)
             .background(glass.cardBg)
-            .border(1.dp, glass.cardBorder, shape)
+            .border(1.dp, outline, shape)
             // A settled result opens its evidence page; an untested card has nothing to explain,
             // so it stays inert rather than opening an empty sheet.
             .clickable(enabled = result != null, onClick = onOpenDetail)
@@ -279,7 +323,7 @@ private fun PlatformCard(
                     .heightIn(min = statusRowHeight + RowGap + ipRowHeight),
                 verticalArrangement = Arrangement.Center
             ) {
-                StatusRow(result, active, avgLatency, onRetry)
+                StatusRow(result, active, pending, avgLatency, onRetry)
                 result?.ip?.let { ip ->
                     Spacer(Modifier.height(RowGap))
                     Row(
@@ -305,50 +349,118 @@ private fun PlatformCard(
                 }
             }
 
-            // Fixed slots that fill in as each sample arrives, so the dots "load" one by one.
-            // A failed or blocked probe shows none: the slots stay invisible but still hold
-            // the row, keeping every card in the grid the same height.
-            val showSlots = result?.status != ProbeStatus.FAILED &&
-                result?.status != ProbeStatus.BLOCKED &&
-                (samples.isNotEmpty() || result != null)
+            // Fixed slots that fill in as each sample arrives, so the chart grows one bar at a
+            // time. A probe in flight fills them — a first run and a re-probe alike — while an
+            // untested or settled-unfavourable card shows none: the slots still hold the row, so
+            // every card in the grid keeps its height.
+            val status = result?.status
+            val showSlots = if (pending) {
+                active && samples.isNotEmpty()
+            } else {
+                // Settled: an unfavourable verdict shows no chart at all, a favourable one holds
+                // the row even before any samples have landed.
+                status != ProbeStatus.FAILED && status != ProbeStatus.BLOCKED
+            }
             Spacer(Modifier.height(5.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                repeat(LATENCY_SAMPLE_COUNT) { index ->
-                    if (showSlots) {
-                        SampleDot(samples.getOrNull(index))
-                    } else {
-                        Spacer(Modifier.size(SampleDotSize))
-                    }
-                }
+            SampleChart(samples, showSlots)
+        }
+    }
+}
+
+/** One card's latency samples as a small bar chart, one bar per slot. */
+@Composable
+private fun SampleChart(samples: List<Long>, showSlots: Boolean) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(ChartMax),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        repeat(LATENCY_SAMPLE_COUNT) { index ->
+            if (showSlots) {
+                SampleBar(samples.getOrNull(index))
+            } else {
+                Spacer(Modifier.weight(1f))
             }
         }
     }
 }
 
-/** One latency-sample dot. A null value is a not-yet-filled slot, shown as a faint placeholder. */
+/**
+ * One sample bar: its height is that round trip against a fixed 700 ms ceiling, its colour the
+ * same fast / middling / slow band the rest of the page uses. The ceiling is absolute rather than
+ * per-card so two cards compare by height as well as by colour; a failed sample is a short red
+ * stub and a slot that has not landed yet a faint one.
+ */
 @Composable
-private fun SampleDot(ms: Long?) {
-    if (ms == null) {
-        Box(
-            Modifier
-                .size(SampleDotSize)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.16f))
-        )
-        return
+private fun RowScope.SampleBar(ms: Long?) {
+    val grow = remember { Animatable(0f) }
+    LaunchedEffect(ms) {
+        grow.snapTo(0f)
+        grow.animateTo(1f, tween(durationMillis = 260, easing = FastOutSlowInEasing))
     }
-    val appear = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        appear.animateTo(1f, tween(durationMillis = 260, easing = FastOutSlowInEasing))
+    val height = when {
+        ms == null || ms < 0 -> ChartEmpty
+        else -> ChartMin + (ChartMax - ChartMin) * (ms / ChartFullMs).coerceIn(0f, 1f)
     }
     Box(
         Modifier
-            .size(SampleDotSize)
-            .scale(0.4f + 0.6f * appear.value)
-            .alpha(appear.value)
-            .clip(CircleShape)
-            .background(sampleColor(ms))
+            .weight(1f)
+            .height(height)
+            .graphicsLayer {
+                scaleY = grow.value
+                // Bars grow out of the baseline rather than out of their own centre.
+                transformOrigin = TransformOrigin(0.5f, 1f)
+            }
+            .clip(RoundedCornerShape(2.dp))
+            .background(
+                if (ms == null) {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.16f)
+                } else {
+                    sampleColor(ms)
+                }
+            )
     )
+}
+
+/**
+ * The verdict counts, each in its own colour, on the page title's second line once a run has
+ * finished. They are the colours the cards use, so the line reads as a summary of them rather
+ * than as a second verdict.
+ */
+@Composable
+private fun VerdictCounts(results: Map<String, ProbeResult>) {
+    val pieces = remember(results) {
+        results.values
+            .map { statusVisual(it.status, null) }
+            .groupBy { it.third }
+            .map { (label, group) -> Triple(label, group.size, group.first().second) }
+            .sortedBy {
+                SummaryOrder.indexOf(it.first).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE
+            }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        pieces.forEachIndexed { index, (label, count, color) ->
+            if (index > 0) {
+                Text(
+                    text = "·",
+                    color = MutedColor,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    modifier = Modifier.padding(horizontal = 5.dp)
+                )
+            }
+            Text(
+                text = "$count $label",
+                color = color,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
 }
 
 /** Latency-sample dot colour: fast green, middling amber, slow or failed red. */
@@ -366,7 +478,13 @@ internal fun averageLatency(samples: List<Long>): Long? {
 }
 
 @Composable
-private fun StatusRow(result: ProbeResult?, active: Boolean, avgLatency: Long?, onRetry: () -> Unit) {
+private fun StatusRow(
+    result: ProbeResult?,
+    active: Boolean,
+    pending: Boolean,
+    avgLatency: Long?,
+    onRetry: () -> Unit
+) {
     val minHeight = with(LocalDensity.current) { StatusRowHeight.toDp() }
     Row(
         Modifier
@@ -374,13 +492,10 @@ private fun StatusRow(result: ProbeResult?, active: Boolean, avgLatency: Long?, 
             .heightIn(min = minHeight),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // A re-probe of a settled unfavourable row is still "in progress": show the same
-        // pending form as a first-time probe, so the stale verdict and its retry button are
-        // both replaced by the spinner rather than sitting next to it. This must cover every
-        // status that offers a retry (FAILED and BLOCKED), or tapping retry would do nothing.
-        val retryable = result != null &&
-            (result.status == ProbeStatus.FAILED || result.status == ProbeStatus.BLOCKED)
-        val pending = result == null || (active && retryable)
+        // A re-probe of a settled unfavourable row shows the same pending form as a first-time
+        // probe, so the stale verdict and its retry button are both replaced by the spinner
+        // rather than sitting next to it. `pending` is decided by the card, so this row and the
+        // latency chart cannot disagree about whether the probe is in flight.
         if (pending) {
             if (active) {
                 CircularProgressIndicator(
@@ -422,8 +537,11 @@ private fun StatusRow(result: ProbeResult?, active: Boolean, avgLatency: Long?, 
             }
             return@Row
         }
-        val ms = avgLatency ?: result.latencyMs
-        val (icon, color, label) = statusVisual(result.status, ms)
+        // Reaching here means the card did not call this row pending, which it only does for a
+        // settled result; a parameter cannot carry that smart cast, so take it explicitly.
+        val settled = result ?: return@Row
+        val ms = avgLatency ?: settled.latencyMs
+        val (icon, color, label) = statusVisual(settled.status, ms)
         Box(
             Modifier
                 .size(18.dp)
@@ -436,7 +554,7 @@ private fun StatusRow(result: ProbeResult?, active: Boolean, avgLatency: Long?, 
         Spacer(Modifier.width(7.dp))
         Text(label, color = color, fontSize = 13.sp, lineHeight = StatusRowHeight, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.weight(1f))
-        if (result.status == ProbeStatus.FAILED || result.status == ProbeStatus.BLOCKED) {
+        if (settled.status == ProbeStatus.FAILED || settled.status == ProbeStatus.BLOCKED) {
             // An active re-probe is handled by the pending branch above, so reaching here means
             // the verdict is settled and the row can offer another attempt. BLOCKED counts as
             // retryable because a 403 can be a passing rate-limit rather than a region verdict.
@@ -453,12 +571,14 @@ private fun StatusRow(result: ProbeResult?, active: Boolean, avgLatency: Long?, 
 @Composable
 private fun RetryButton(onClick: () -> Unit) {
     val shape = RoundedCornerShape(7.dp)
+    // A single re-probe spends a real request, so it is confirmed by touch like the batch run.
+    val retry = hapticOnClick(HapticFeedbackType.Confirm, onClick)
     Box(
         Modifier
             .size(22.dp)
             .clip(shape)
             .border(1.dp, BadColor.copy(alpha = 0.35f), shape)
-            .clickable(onClick = onClick),
+            .clickable(onClick = retry),
         contentAlignment = Alignment.Center
     ) {
         Icon(

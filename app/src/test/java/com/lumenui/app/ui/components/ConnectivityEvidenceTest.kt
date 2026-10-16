@@ -126,4 +126,42 @@ class ConnectivityEvidenceTest {
             assertFalse(kindLabel(kind).isBlank())
         }
     }
+
+    // --- Section grouping (the detail page's layout) -------------------------
+
+    @Test
+    fun sectionsOf_keepsOnlyTheLinesThePageHasNoBespokeCardFor() {
+        val lines = evidenceFor(
+            target(ProbeKind.TRACE, domain = "chat.openai.com"),
+            result(region = "US", colo = "HKG", ip = "1.2.3.4", samples = listOf(120L, 140L))
+        )
+        val sections = sectionsOf(lines)
+        val labels = sections.flatMap { section -> section.lines.map { it.label } }
+
+        // The verdict hero and the 出口 / 延迟 figure cards render these off the result itself,
+        // so they must not also turn up as labelled text rows underneath.
+        assertEquals(listOf("目标"), sections.map { it.title })
+        listOf(
+            LABEL_PROBE_KIND, LABEL_CRITERION, LABEL_REGION,
+            LABEL_EXIT_ADDRESS, LABEL_AVG_LATENCY, LABEL_SAMPLES
+        ).forEach { consumed ->
+            assertFalse("$consumed should be rendered by the page, not a section", labels.contains(consumed))
+        }
+        assertTrue(labels.contains("探测域名"))
+    }
+
+    @Test
+    fun sectionsOf_omitsSectionsWithNothingInThem() {
+        // Reachability only: no region, no IP, no samples, so only the target section survives.
+        val lines = evidenceFor(target(ProbeKind.PING, url = "https://x.com/"), result())
+        assertEquals(listOf("目标"), sectionsOf(lines).map { it.title })
+    }
+
+    @Test
+    fun sectionsOf_filesAnUnmappedLabelUnderOther() {
+        // A label added to evidenceFor without a section must still reach the page.
+        val sections = sectionsOf(listOf(EvidenceLine("新的观察", "值")))
+        assertEquals(listOf("其他"), sections.map { it.title })
+        assertEquals("值", sections.single().lines.single().value)
+    }
 }
