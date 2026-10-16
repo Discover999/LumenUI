@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Scope, rather than switch off, the two checks whose only findings in this project are
+  deliberate choices:
+
+  - ObsoleteSdkInt wants mipmap-anydpi-v26 merged into mipmap-anydpi, but AAPT2 then fails to
+    resolve the adaptive launcher icon, so the version qualifier has to stay.
+  - InsecureBaseConfiguration flags the cleartext base config, which is the app's whole point:
+    the permitted host and the reasoning live in res/xml/network_security_config.xml.
+
+  Both checks stay active everywhere else, so a newly obsoleted SDK gate in code, or a cleartext
+  configuration somewhere new, is still reported. Verified: with these ignores removed, lint
+  reports exactly these two warnings and nothing else.
+-->
+<lint>
+    <issue id="ObsoleteSdkInt">
+        <ignore path="src/main/res/mipmap-anydpi-v26" />
+    </issue>
+    <issue id="InsecureBaseConfiguration">
+        <ignore path="src/main/res/xml/network_security_config.xml" />
+    </issue>
+</lint>
