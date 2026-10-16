@@ -164,6 +164,14 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         connectivityRunner.retry(target)
     }
 
+    /**
+     * Holds the connectivity results while a page showing them is open, so their TTL cannot clear
+     * the grid — and the evidence page on top of it — while the user is looking at it.
+     */
+    fun holdConnectivityResults(held: Boolean) {
+        connectivityRunner.setResultsHeld(held)
+    }
+
     fun toggleConnectivityTarget(name: String) {
         setConnectivityTargets(
             if (name in _connectivityTargets.value) _connectivityTargets.value - name

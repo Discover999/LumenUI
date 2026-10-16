@@ -36,7 +36,8 @@ internal const val CONNECTIVITY_RESULT_TTL_MS = 2 * 60 * 1000L
  *
  * Depends only on the [ConnectivityProbe] / [IpReputationApi] interfaces (no Android, no concrete
  * HTTP clients) so the orchestration can be driven with fakes in tests. A finished run's results
- * are discarded after [CONNECTIVITY_RESULT_TTL_MS], so a stale set never lingers.
+ * are discarded after [CONNECTIVITY_RESULT_TTL_MS], so a stale set never lingers — except while
+ * [setResultsHeld] holds them, which a page showing them does for as long as it is open.
  */
 class ConnectivityRunner(
     private val probe: ConnectivityProbe,
@@ -48,6 +49,23 @@ class ConnectivityRunner(
 
     private var runJob: Job? = null
     private var expiryJob: Job? = null
+    private var resultsHeld = false
+
+    /**
+     * Holds the expiry while a page is showing the results, releasing it restarts the countdown.
+     * The TTL exists to stop a stale set lingering, not to redraw a page the user is reading: it
+     * landing mid-view empties the grid — and takes the evidence page opened on top of it with it
+     * — under their eyes, which reads as the page breaking rather than as data ageing out.
+     */
+    fun setResultsHeld(held: Boolean) {
+        if (resultsHeld == held) return
+        resultsHeld = held
+        if (held) {
+            expiryJob?.cancel()
+        } else if (_state.value.results.isNotEmpty()) {
+            scheduleExpiry()
+        }
+    }
 
     /** Starts a fresh run over [targets], cancelling any run already in flight. */
     fun run(targets: List<ProbeTarget>) {
@@ -97,6 +115,7 @@ class ConnectivityRunner(
     /** Discards the accumulated results once they have sat idle for the TTL. */
     private fun scheduleExpiry() {
         expiryJob?.cancel()
+        if (resultsHeld) return
         expiryJob = scope.launch {
             delay(CONNECTIVITY_RESULT_TTL_MS)
             _state.value = ConnectivityState()

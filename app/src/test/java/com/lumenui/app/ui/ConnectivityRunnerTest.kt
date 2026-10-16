@@ -104,6 +104,27 @@ class ConnectivityRunnerTest {
         assertTrue(runner.state.value.results.isEmpty())
     }
 
+    @Test
+    fun results_surviveWhileHeldAndExpireAfterTheHoldIsReleased() = runTest {
+        val probe = FakeProbe(results = mapOf("A" to result("A", ip = null)))
+        val runner = ConnectivityRunner(probe, FakeReputation(), backgroundScope)
+
+        runner.setResultsHeld(true)
+        runner.run(listOf(target("A")))
+        testScheduler.runCurrent()
+
+        // Several TTLs pass with a page open: the results must still be there to be read.
+        testScheduler.advanceTimeBy(CONNECTIVITY_RESULT_TTL_MS * 3)
+        testScheduler.runCurrent()
+        assertTrue(runner.state.value.results.isNotEmpty())
+
+        runner.setResultsHeld(false)
+        testScheduler.advanceTimeBy(CONNECTIVITY_RESULT_TTL_MS + 1)
+        testScheduler.runCurrent()
+
+        assertTrue(runner.state.value.results.isEmpty())
+    }
+
     private fun target(name: String) = ProbeTarget(name, "cat", ProbeKind.SIMPLE)
 
     private fun result(name: String, ip: String?) =

@@ -118,6 +118,14 @@ fun MainScreen(
         }
     }
 
+    // A run's results expire after a TTL, which would empty the grid — and take the evidence page
+    // opened on top of it with it — while they are being read. Held for as long as either page
+    // window is still on screen, released once the last one has finished sliding out.
+    val resultsOnScreen = connectivityPage || detailPage != null
+    LaunchedEffect(resultsOnScreen) {
+        viewModel.holdConnectivityResults(resultsOnScreen)
+    }
+
     // A launcher shortcut asked for a page: open it once the panel exists, then report it
     // handled so returning to the app later does not re-open the same page.
     LaunchedEffect(startDestination, current?.id) {
