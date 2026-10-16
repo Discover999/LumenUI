@@ -185,11 +185,16 @@ fun ConnectivityScreen(
             ) {
                 targets.groupBy { it.category }.forEach { (category, items) ->
                     item(span = { GridItemSpan(maxLineSpan) }) {
+                        // A label and nothing else: the run's progress and its verdict already have
+                        // their own places on this page, and a per-group counter only restated them.
                         Text(
                             text = category,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
-                            modifier = Modifier.padding(top = 4.dp)
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 14.dp, bottom = 2.dp)
                         )
                     }
                     items(items, key = { it.name }) { target ->
@@ -306,7 +311,11 @@ private fun PlatformCard(
             }
         }
 
-        Spacer(Modifier.height(11.dp))
+        // A hairline separates the platform's identity from what the probe found, the way the
+        // detail page's cards separate their sections.
+        Spacer(Modifier.height(9.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(glass.cardBorder))
+        Spacer(Modifier.height(9.dp))
 
         val density = LocalDensity.current
         val statusRowHeight = with(density) { StatusRowHeight.toDp() }
