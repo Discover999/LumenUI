@@ -7,9 +7,12 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 /**
  * Wraps a click handler so the action is confirmed by touch.
  *
- * Only actions with a consequence use this — switching the active backend, starting or retrying a
- * test, flipping a test item, deleting a backend. Plain navigation (opening a page, going back,
- * opening a menu or a dialog) deliberately stays silent: the page transition already marks it, and
+ * Two groups use this. Actions with a consequence — switching the active backend, starting or
+ * retrying a test, flipping a test item, deleting a backend. And every control in the top bar,
+ * which is app chrome rather than page content: the three icon buttons, plus the title whose tap
+ * opens the backends switcher and the menu button, neither of which has a page transition to mark
+ * it. Navigation inside a page stays silent by contrast — opening a page, going back, opening a
+ * menu or a dialog there, tapping a card — because the page transition already marks those, and
  * buzzing on every tap reads as noise rather than as feedback.
  *
  * These are the view's haptic constants, so no VIBRATE permission is needed and the system's own

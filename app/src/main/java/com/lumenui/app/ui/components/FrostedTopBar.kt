@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,6 +64,14 @@ fun FrostedTopBar(
     val noise = rememberFrostNoise()
     var titleMenuExpanded by remember { mutableStateOf(false) }
     var actionMenuExpanded by remember { mutableStateOf(false) }
+
+    // Every control in the bar ticks, the two popup openers included: they sit in app chrome
+    // rather than in page content, and no page transition marks them.
+    val openTitleMenu = hapticOnClick(HapticFeedbackType.ContextClick) { titleMenuExpanded = true }
+    val openActionMenu = hapticOnClick(HapticFeedbackType.ContextClick) { actionMenuExpanded = true }
+    val goHome = hapticOnClick(HapticFeedbackType.ContextClick, onHome)
+    val checkIp = hapticOnClick(HapticFeedbackType.ContextClick, onIp)
+    val reload = hapticOnClick(HapticFeedbackType.ContextClick, onRefresh)
 
     Column(
         modifier
@@ -96,7 +105,7 @@ fun FrostedTopBar(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable { titleMenuExpanded = true }
+                            .clickable(onClick = openTitleMenu)
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -114,9 +123,9 @@ fun FrostedTopBar(
                 }
             )
 
-            GlassIconButton(Lucide.House, "返回面板", onHome)
-            GlassIconButton(Lucide.Globe, "IP 检测", onIp)
-            GlassIconButton(Lucide.RefreshCw, "刷新", onRefresh)
+            GlassIconButton(Lucide.House, "返回面板", goHome)
+            GlassIconButton(Lucide.Globe, "IP 检测", checkIp)
+            GlassIconButton(Lucide.RefreshCw, "刷新", reload)
 
             AnchoredGlassMenu(
                 expanded = actionMenuExpanded,
@@ -125,7 +134,7 @@ fun FrostedTopBar(
                 alignToAnchorEnd = true,
                 menuContent = { actionMenu { actionMenuExpanded = false } },
                 anchor = {
-                    GlassIconButton(Lucide.Menu, "菜单") { actionMenuExpanded = true }
+                    GlassIconButton(Lucide.Menu, "菜单", openActionMenu)
                 }
             )
         }
