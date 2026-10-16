@@ -19,7 +19,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -103,6 +106,16 @@ fun MainScreen(
     // per backend; the initial application happens via onPanelReady once the page loads.
     LaunchedEffect(current?.id) {
         current?.let(controller::connect)
+    }
+
+    // The top bar's status light only reports the last probe, so the current backend is
+    // re-probed on a timer. Bounded to RESUMED: polling while the app is off screen would
+    // spend the phone's proxied bandwidth to keep a dot nobody is looking at up to date.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            viewModel.pollCurrentStatus()
+        }
     }
 
     // A launcher shortcut asked for a page: open it once the panel exists, then report it

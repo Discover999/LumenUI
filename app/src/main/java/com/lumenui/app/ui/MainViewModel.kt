@@ -7,6 +7,7 @@ import com.lumenui.app.data.ConnectivityTargets
 import com.lumenui.app.data.Probe
 import com.lumenui.app.data.ProbeTarget
 import com.lumenui.app.di.AppContainer
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -133,6 +134,18 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         _current.value?.let { refreshStatus(it) }
     }
 
+    /**
+     * Re-probes the current backend every [STATUS_POLL_INTERVAL_MS], forever. Never returns:
+     * the caller bounds the loop to the app being on screen, so a returned-to app re-probes
+     * from the start and nothing is sent while it is in the background.
+     */
+    suspend fun pollCurrentStatus() {
+        while (true) {
+            delay(STATUS_POLL_INTERVAL_MS)
+            refreshCurrent()
+        }
+    }
+
     private suspend fun probeInto(backend: Backend) {
         val result = container.mihomoApi.probe(backend)
         _probes.value = _probes.value + (backend.id to result)
@@ -171,3 +184,5 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         container.settings.connectivityTargets = next
     }
 }
+
+private const val STATUS_POLL_INTERVAL_MS = 60_000L
