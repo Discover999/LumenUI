@@ -3,6 +3,9 @@
     Long-press shortcuts. Each one opens the app on a full-screen page directly, so a
     frequent action does not require the launcher, the top bar and a menu tap in between.
     The action names are consumed in MainActivity.
+
+    Both label slots carry the short text: a launcher with room would otherwise show the
+    descriptive long label, and one action would read as two different names.
 -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -11,7 +14,7 @@
         android:enabled="true"
         android:icon="@drawable/ic_shortcut_globe"
         android:shortcutShortLabel="@string/shortcut_connectivity_short"
-        android:shortcutLongLabel="@string/shortcut_connectivity_long">
+        android:shortcutLongLabel="@string/shortcut_connectivity_short">
         <intent
             android:action="com.lumenui.app.shortcut.CONNECTIVITY"
             android:targetClass="com.lumenui.app.MainActivity"
@@ -23,7 +26,7 @@
         android:enabled="true"
         android:icon="@drawable/ic_shortcut_radar"
         android:shortcutShortLabel="@string/shortcut_dns_short"
-        android:shortcutLongLabel="@string/shortcut_dns_long">
+        android:shortcutLongLabel="@string/shortcut_dns_short">
         <intent
             android:action="com.lumenui.app.shortcut.DNS"
             android:targetClass="com.lumenui.app.MainActivity"
