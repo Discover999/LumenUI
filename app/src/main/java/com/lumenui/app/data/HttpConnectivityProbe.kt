@@ -221,39 +221,50 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         // The licensed title names the region too, but it may be the one that did not play, so
         // either response is allowed to supply it.
         val region = licensed?.region ?: area?.region
-        val status = when {
-            // 403 is Netflix refusing the egress address outright, self-test title included.
-            area?.code == 403 || licensed?.code == 403 -> ProbeStatus.BLOCKED
-            // Licensed content plays, so the catalogue reaches past Netflix's own productions.
-            licensed?.playable == true -> ProbeStatus.UNLOCKED
-            // Only the self-test title plays: the region carries Netflix, but originals are all
-            // it will serve this address.
-            area?.playable == true -> ProbeStatus.LIMITED
-            // Nothing answered at all. Reported as a failed probe, not as a region verdict.
-            area == null && licensed == null -> ProbeStatus.FAILED
-            // Both answered and neither title played.
-            else -> ProbeStatus.BLOCKED
-        }
-        return target.done(start, status, region)
+        return target.done(start, netflixStatus(area, licensed), region)
     }
 
     /** What one title page said: its HTTP status, whether it plays, and the region it named. */
-    private data class NetflixTitle(val code: Int, val playable: Boolean, val region: String?)
+    internal data class NetflixTitle(val code: Int, val playable: Boolean, val region: String?)
 
     /**
-     * Requests one Netflix title without following redirects, or null when the request did not
-     * come back at all. The page plays where the answer is `301`/`302` pointing at the same
-     * title; anywhere else (a `404`, or a redirect to a browsing page) means it is not available
-     * from this address.
+     * The verdict from the two title answers. Kept pure and covered by tests on purpose: this
+     * grading has been inverted once, and a wrong verdict here still looks perfectly plausible on
+     * the device, so nothing but a test catches it.
      */
+    internal fun netflixStatus(area: NetflixTitle?, licensed: NetflixTitle?): ProbeStatus = when {
+        // 403 is Netflix refusing the egress address outright, self-test title included.
+        area?.code == 403 || licensed?.code == 403 -> ProbeStatus.BLOCKED
+        // Licensed content plays, so the catalogue reaches past Netflix's own productions.
+        licensed?.playable == true -> ProbeStatus.UNLOCKED
+        // Only the self-test title plays: the region carries Netflix, but originals are all it
+        // will serve this address.
+        area?.playable == true -> ProbeStatus.LIMITED
+        // Nothing answered at all. Reported as a failed probe, not as a region verdict.
+        area == null && licensed == null -> ProbeStatus.FAILED
+        // Both answered and neither title played.
+        else -> ProbeStatus.BLOCKED
+    }
+
+    /**
+     * Reads one title's answer. The page plays where the status is a 3xx whose `Location` still
+     * names that same title; anywhere else — a `404`, or a redirect to `/browse` or
+     * `/unsupportedbrowser` — means it is not available from this address. The region comes out of
+     * the same Location, which is what [NETFLIX_REGION] strips the language suffix from.
+     */
+    internal fun netflixPage(id: String, code: Int, location: String?): NetflixTitle {
+        val location = location.orEmpty()
+        return NetflixTitle(
+            code = code,
+            playable = code in 300..399 && location.contains("/title/$id"),
+            region = NETFLIX_REGION.find(location)?.groupValues?.get(1)?.uppercase()
+        )
+    }
+
+    /** Requests one Netflix title without following redirects, or null when nothing came back. */
     private fun netflixTitle(id: String): NetflixTitle? {
         val response = get(noFollowClient, "https://www.netflix.com/title/$id") ?: return null
-        return response.use { res ->
-            val location = res.header("Location").orEmpty()
-            val region = NETFLIX_REGION.find(location)?.groupValues?.get(1)?.uppercase()
-            val playable = res.code in 300..399 && location.contains("/title/$id")
-            NetflixTitle(res.code, playable, region)
-        }
+        return response.use { res -> netflixPage(id, res.code, res.header("Location")) }
     }
 
     private fun checkDisney(target: ProbeTarget, start: Long): ProbeResult {
@@ -369,8 +380,7 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         val response = head(followClient, "https://www.reddit.com/")
             ?: return target.done(start, ProbeStatus.FAILED)
         response.use { res ->
-            val timing = res.header("server-timing").orEmpty()
-            val region = REDDIT_POP_REGEX.find(timing)?.groupValues?.get(1)?.let(RegionCodes::normalize)
+            val region = redditRegion(res.header("server-timing"))
             val status = when {
                 res.code == 200 -> ProbeStatus.UNLOCKED
                 res.code == 403 -> ProbeStatus.BLOCKED
@@ -434,19 +444,14 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         val url = target.url.ifEmpty { "https://www.hbomax.com/" }
         val response = get(followClient, url) ?: return target.done(start, ProbeStatus.FAILED)
         response.use { res ->
-            val region = res.headers("Set-Cookie")
-                .firstNotNullOfOrNull { HBO_COUNTRY_COOKIE.find(it)?.groupValues?.get(1) }
-                ?.uppercase()
+            val region = hboRegion(res.headers("Set-Cookie"))
             if (region == null) {
                 // Reachable but the edge did not name a region, so availability cannot be judged.
                 // Report the failure without a region rather than inventing one.
                 return target.done(start, ProbeStatus.BLOCKED)
             }
             val body = runCatching { res.body.string() }.getOrDefault("")
-            val offered = HBO_COUNTRY_URL.findAll(body)
-                .map { it.groupValues[1].uppercase() }
-                .toSet() + "US"
-            val status = if (region in offered) ProbeStatus.UNLOCKED else ProbeStatus.BLOCKED
+            val status = if (region in hboOfferedRegions(body)) ProbeStatus.UNLOCKED else ProbeStatus.BLOCKED
             // The region is reported either way, so a blocked card still shows where it was seen.
             return target.done(start, status, region)
         }
@@ -488,6 +493,29 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
 
     /** The fields a Cloudflare trace body carries that the cards show. */
     internal data class TraceInfo(val ip: String?, val loc: String?, val colo: String?, val warp: Boolean)
+
+    // --- Platform parsers, kept pure so the shapes that were once mis-read stay covered --------
+
+    /** Reddit names the POP it answered from in `server-timing`, e.g. `p=HKG`. */
+    internal fun redditRegion(serverTiming: String?): String? =
+        REDDIT_POP_REGEX.find(serverTiming.orEmpty())
+            ?.groupValues?.get(1)
+            ?.let(RegionCodes::normalize)
+
+    /**
+     * The region the HBO edge reports. It arrives as a `Set-Cookie: countryCode=XX` — there is no
+     * plain `countryCode` header and it is not in the body — so every cookie has to be scanned.
+     */
+    internal fun hboRegion(setCookies: List<String>): String? =
+        setCookies.firstNotNullOfOrNull { HBO_COUNTRY_COOKIE.find(it)?.groupValues?.get(1) }
+            ?.uppercase()
+
+    /**
+     * The regions the HBO page itself offers, which the reported region is compared against. The
+     * site always offers the US, so it counts even when the page does not link it.
+     */
+    internal fun hboOfferedRegions(body: String): Set<String> =
+        HBO_COUNTRY_URL.findAll(body).map { it.groupValues[1].uppercase() }.toSet() + "US"
 
     /**
      * Parses a `/cdn-cgi/trace` body. A response that is not 2xx/3xx, or that carries an HTML
