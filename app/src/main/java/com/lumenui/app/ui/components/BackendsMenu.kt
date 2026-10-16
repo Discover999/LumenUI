@@ -23,11 +23,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,6 +53,10 @@ fun BackendsMenuContent(
     onDelete: (Backend) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Deleting a backend is irreversible and takes its stored secret with it, so the first tap
+    // only arms one row and a second, deliberate tap on 删除 is what does it.
+    var pendingDeleteId by remember { mutableStateOf<String?>(null) }
+
     Column(modifier.fillMaxWidth()) {
         Row(
             Modifier
@@ -87,9 +96,15 @@ fun BackendsMenuContent(
                 backend = backend,
                 selected = backend.id == currentId,
                 probe = probes[backend.id],
+                confirming = backend.id == pendingDeleteId,
                 onSelect = { onSelect(backend) },
                 onEdit = { onEdit(backend) },
-                onDelete = { onDelete(backend) }
+                onDelete = { pendingDeleteId = backend.id },
+                onConfirmDelete = {
+                    pendingDeleteId = null
+                    onDelete(backend)
+                },
+                onCancelDelete = { pendingDeleteId = null }
             )
         }
 
@@ -102,9 +117,12 @@ private fun BackendRow(
     backend: Backend,
     selected: Boolean,
     probe: Probe?,
+    confirming: Boolean,
     onSelect: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onConfirmDelete: () -> Unit,
+    onCancelDelete: () -> Unit
 ) {
     val glass = LocalGlassColors.current
     Row(
@@ -112,8 +130,13 @@ private fun BackendRow(
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 0.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) glass.chipBg else Color.Transparent)
-            .clickable(onClick = onSelect)
+            .background(if (selected || confirming) glass.chipBg else Color.Transparent)
+            // Switching the active backend changes what the whole app talks to; while the row is
+            // asking to confirm a delete, tapping it must not also switch backends.
+            .clickable(
+                enabled = !confirming,
+                onClick = hapticOnClick(HapticFeedbackType.ContextClick, onSelect)
+            )
             .padding(start = 10.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -138,26 +161,56 @@ private fun BackendRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            // The second line carries the warning while confirming, so the row keeps its height
+            // and the consequence sits where the address used to be.
             Text(
-                text = backend.baseUrl.substringAfter("://"),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = if (confirming) {
+                    "删除后无法恢复，需重新添加"
+                } else {
+                    backend.baseUrl.substringAfter("://")
+                },
+                color = if (confirming) BadColor else MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.5.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
-        probeLabel(probe)?.let { label ->
-            Text(
-                text = label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.5.sp,
-                maxLines = 1,
-                modifier = Modifier.padding(start = 8.dp, end = 2.dp)
-            )
+        if (confirming) {
+            RowTextAction("取消", MaterialTheme.colorScheme.onSurfaceVariant, onCancelDelete)
+            // Only the tap that really deletes is confirmed by touch; arming the row and
+            // cancelling are both harmless, so they stay silent.
+            RowTextAction("删除", BadColor, hapticOnClick(HapticFeedbackType.Confirm, onConfirmDelete))
+        } else {
+            probeLabel(probe)?.let { label ->
+                Text(
+                    text = label,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp,
+                    maxLines = 1,
+                    modifier = Modifier.padding(start = 8.dp, end = 2.dp)
+                )
+            }
+            // Opening the editor is only navigation and stays silent. Arming the delete gets a
+            // lighter tick than the 删除 that follows, so the two steps feel different.
+            RowIconButton(Lucide.Pencil, "编辑", onEdit)
+            RowIconButton(Lucide.Trash2, "删除", hapticOnClick(HapticFeedbackType.ContextClick, onDelete))
         }
-        RowIconButton(Lucide.Pencil, "编辑", onEdit)
-        RowIconButton(Lucide.Trash2, "删除", onDelete)
     }
+}
+
+/** Compact text action for the inline delete confirmation. */
+@Composable
+private fun RowTextAction(text: String, color: Color, onClick: () -> Unit) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = 12.sp,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 6.dp)
+    )
 }
 
 /** Compact (34dp) row action so the backend list stays narrow. */
