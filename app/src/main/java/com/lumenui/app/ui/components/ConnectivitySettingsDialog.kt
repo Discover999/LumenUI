@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,7 +67,7 @@ fun ConnectivitySettingsDialog(
                     fontSize = 12.sp,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = onSelectAll)
+                        .clickable(onClick = hapticOnClick(HapticFeedbackType.ToggleOn, onSelectAll))
                         .padding(horizontal = 8.dp, vertical = 5.dp)
                 )
                 Spacer(Modifier.width(4.dp))
@@ -76,7 +77,7 @@ fun ConnectivitySettingsDialog(
                     fontSize = 12.sp,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = onSelectDefault)
+                        .clickable(onClick = hapticOnClick(HapticFeedbackType.ContextClick, onSelectDefault))
                         .padding(horizontal = 8.dp, vertical = 5.dp)
                 )
             }
@@ -98,12 +99,17 @@ fun ConnectivitySettingsDialog(
                     targets.forEach { target ->
                         val checked = target.name in selected
                         val (brandIcon, accent) = visualPainter(target.name)
+                        // The tick follows the state the tap produces, so on and off differ.
+                        val toggle = hapticOnClick(
+                            type = if (checked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
+                            onClick = { onToggle(target.name) }
+                        )
                         Row(
                             Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(9.dp))
                                 .background(if (checked) glass.buttonBg else Color.Transparent)
-                                .clickable { onToggle(target.name) }
+                                .clickable(onClick = toggle)
                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
