@@ -480,6 +480,23 @@ private fun sampleColor(ms: Long): Color = when {
     else -> BadColor
 }
 
+/**
+ * The card's latency figure: banded on the same thresholds as the chart below it, and set a step
+ * above the verdict label in weight and colour rather than in size — at 14 sp it read as too big
+ * beside that label, so the size is the label's own and the differentiation is left to the colour.
+ */
+@Composable
+private fun LatencyFigure(ms: Long) {
+    Text(
+        text = "${ms}ms",
+        color = delayColor(ms),
+        fontSize = 13.sp,
+        lineHeight = StatusRowHeight,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1
+    )
+}
+
 /** Mean of the successful samples, or null when none have landed (or all failed). */
 internal fun averageLatency(samples: List<Long>): Long? {
     val ok = samples.filter { it >= 0 }
@@ -542,7 +559,7 @@ private fun StatusRow(
             // dot by dot alongside the latency row below.
             if (avgLatency != null) {
                 Spacer(Modifier.weight(1f))
-                Text("${avgLatency}ms", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                LatencyFigure(avgLatency)
             }
             return@Row
         }
@@ -570,8 +587,8 @@ private fun StatusRow(
             // No latency is shown: the request may well have answered quickly, and printing
             // that number next to 不可用 reads as if the platform were responding normally.
             RetryButton(onRetry)
-        } else {
-            if (ms >= 0) Text("${ms}ms", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+        } else if (ms >= 0) {
+            LatencyFigure(ms)
         }
     }
 }
