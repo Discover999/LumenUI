@@ -22,7 +22,9 @@ data class ConnectivityState(
     val results: Map<String, ProbeResult> = emptyMap(),
     val samples: Map<String, List<Long>> = emptyMap(),
     val reputation: Map<String, IpReputation> = emptyMap(),
-    val retrying: Set<String> = emptySet()
+    val retrying: Set<String> = emptySet(),
+    /** Categories whose whole group is being re-probed, for the section header's own state. */
+    val retryingGroups: Set<String> = emptySet()
 )
 
 /** How many connectivity probes run at once. */
@@ -97,17 +99,59 @@ class ConnectivityRunner(
     }
 
     /** Re-probes a single target and replaces its row once done. */
-    fun retry(target: ProbeTarget) {
+    fun retry(target: ProbeTarget) = retryAll(listOf(target))
+
+    /**
+     * Re-probes every target in [targets], leaving rows outside that set untouched. Every name is
+     * marked retrying until the last probe returns, so a group's cards show their pending form
+     * for the whole group run, and the shared gate keeps it inside the same concurrency budget as
+     * a full run.
+     */
+    fun retryAll(targets: List<ProbeTarget>) {
+        if (targets.isEmpty()) return
         expiryJob?.cancel()
         scope.launch {
+            val names = targets.map { it.name }.toSet()
+            // A group run marks its whole category so the header can show progress; a single
+            // target does not, even though both share the per-card pending form.
+            val groups = targets
+                .map { it.category }
+                .distinct()
+                .singleOrNull()
+                ?.takeIf { targets.size > 1 }
+                ?.let { setOf(it) }
+                .orEmpty()
             _state.value = _state.value.copy(
-                retrying = _state.value.retrying + target.name,
-                samples = _state.value.samples - target.name
+                retrying = _state.value.retrying + names,
+                retryingGroups = _state.value.retryingGroups + groups,
+                samples = _state.value.samples - names
             )
-            val result = probeStreaming(target)
-            _state.value = _state.value.copy(results = _state.value.results + (target.name to result))
-            result.ip?.let { ip -> if (ip !in _state.value.reputation) lookupReputation(ip) }
-            _state.value = _state.value.copy(retrying = _state.value.retrying - target.name)
+            val seen = mutableSetOf<String>()
+            coroutineScope {
+                val gate = Semaphore(PROBE_CONCURRENCY)
+                targets.forEach { target ->
+                    launch {
+                        gate.withPermit {
+                            val result = probeStreaming(target)
+                            // Each card leaves the pending form the moment its own probe lands,
+                            // rather than waiting for the group's slowest target.
+                            _state.value = _state.value.copy(
+                                results = _state.value.results + (target.name to result),
+                                retrying = _state.value.retrying - target.name
+                            )
+                            result.ip?.let { ip ->
+                                if (seen.add(ip) && ip !in _state.value.reputation) {
+                                    lookupReputation(ip)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _state.value = _state.value.copy(
+                retrying = _state.value.retrying - names,
+                retryingGroups = _state.value.retryingGroups - groups
+            )
             scheduleExpiry()
         }
     }

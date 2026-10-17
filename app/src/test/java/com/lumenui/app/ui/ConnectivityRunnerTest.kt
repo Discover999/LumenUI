@@ -90,6 +90,41 @@ class ConnectivityRunnerTest {
     }
 
     @Test
+    fun retryAll_reprobesTheWholeGroupAndLeavesOtherGroupsAlone() = runTest {
+        val probe = FakeProbe(
+            results = mapOf(
+                "A" to result("A", ip = null),
+                "B" to result("B", ip = null),
+                "C" to result("C", ip = null)
+            )
+        )
+        val reputation = FakeReputation()
+        val runner = ConnectivityRunner(probe, reputation, backgroundScope)
+        runner.run(listOf(target("A"), target("B"), target("C")))
+        testScheduler.runCurrent()
+        val untouched = runner.state.value.results["C"]
+        probe.probed.clear()
+        reputation.lookedUp.clear()
+
+        probe.results = mapOf(
+            "A" to result("A", ip = "3.3.3.3"),
+            "B" to result("B", ip = "3.3.3.3")
+        )
+        runner.retryAll(listOf(target("A"), target("B")))
+        testScheduler.runCurrent()
+
+        val state = runner.state.value
+        assertEquals(setOf("A", "B"), probe.probed.toSet())
+        assertEquals(untouched, state.results["C"])
+        assertEquals("3.3.3.3", state.results["A"]?.ip)
+        assertEquals("3.3.3.3", state.results["B"]?.ip)
+        // The group shares one egress address; it is looked up once for the whole retest.
+        assertEquals(listOf("3.3.3.3"), reputation.lookedUp)
+        assertTrue(state.retrying.isEmpty())
+        assertTrue(state.retryingGroups.isEmpty())
+    }
+
+    @Test
     fun results_areDiscardedAfterTtl() = runTest {
         val probe = FakeProbe(results = mapOf("A" to result("A", ip = null)))
         val runner = ConnectivityRunner(probe, FakeReputation(), backgroundScope)
@@ -131,7 +166,8 @@ class ConnectivityRunnerTest {
         ProbeResult(name, "cat", ProbeStatus.UNLOCKED, 5L, ip = ip)
 
     /** Returns canned results, recording which targets were probed and emitting two samples. */
-    private class FakeProbe(private val results: Map<String, ProbeResult>) : ConnectivityProbe {
+    private class FakeProbe(results: Map<String, ProbeResult>) : ConnectivityProbe {
+        var results = results
         val probed = mutableListOf<String>()
 
         override suspend fun probe(target: ProbeTarget, onSample: ((Long) -> Unit)?): ProbeResult {

@@ -95,6 +95,7 @@ fun ConnectivityScreen(
     targets: List<ProbeTarget>,
     running: Boolean,
     retrying: Set<String>,
+    retryingGroups: Set<String>,
     results: Map<String, ProbeResult>,
     samples: Map<String, List<Long>>,
     reputation: Map<String, IpReputation>,
@@ -102,6 +103,7 @@ fun ConnectivityScreen(
     onRerun: () -> Unit,
     onSettings: () -> Unit,
     onRetry: (ProbeTarget) -> Unit,
+    onRetryGroup: (List<ProbeTarget>) -> Unit,
     onOpenDetail: (ProbeTarget) -> Unit
 ) {
     val glass = LocalGlassColors.current
@@ -185,20 +187,35 @@ fun ConnectivityScreen(
             ) {
                 targets.groupBy { it.category }.forEach { (category, items) ->
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        // A label and nothing else: the run's progress and its verdict already have
-                        // their own places on this page, and a per-group counter only restated them.
-                        Text(
-                            text = category,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 14.dp, bottom = 2.dp)
-                        )
+                        // The runner marks the category itself for a group run, so the header can
+                        // tell that apart from one card's re-test without guessing from names.
+                        val groupRunning = category in retryingGroups
+                        val groupBusy = running || groupRunning || items.any { it.name in retrying }
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(top = 14.dp, bottom = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = category,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            GroupRetestButton(
+                                running = groupRunning,
+                                enabled = !groupBusy,
+                                onClick = { onRetryGroup(items) }
+                            )
+                        }
                     }
                     items(items, key = { it.name }) { target ->
-                        val active = running || target.name in retrying
+                        val retesting = target.name in retrying
+                        val active = running || retesting
                         PlatformCard(
                             target = target,
                             result = results[target.name],
@@ -211,6 +228,7 @@ fun ConnectivityScreen(
                                 samples[target.name] ?: results[target.name]?.samples.orEmpty()
                             },
                             active = active,
+                            retesting = retesting,
                             reputation = reputation,
                             onRetry = { onRetry(target) },
                             // Only a settled result has evidence to explain; a bare card has none.
@@ -239,6 +257,7 @@ private fun PlatformCard(
     result: ProbeResult?,
     samples: List<Long>,
     active: Boolean,
+    retesting: Boolean,
     reputation: Map<String, IpReputation>,
     onRetry: () -> Unit,
     onOpenDetail: () -> Unit
@@ -246,12 +265,12 @@ private fun PlatformCard(
     val glass = LocalGlassColors.current
     val (brandIcon, accent) = visualPainter(target.name)
     val shape = RoundedCornerShape(14.dp)
-    // A settled unfavourable row that is being re-probed is still "in progress", so the card
-    // works that out once and both the status row and the latency chart follow it — the two
-    // gates drifting apart is exactly what once made a retry tap look inert.
+    // A settled row that is being re-probed — favourable or not — is still "in progress", so the
+    // card works that out once and both the status row and the latency chart follow it. A batch
+    // run does not flip settled cards, only the ones in a running group or the single re-test.
     val retryable = result != null &&
         (result.status == ProbeStatus.FAILED || result.status == ProbeStatus.BLOCKED)
-    val pending = result == null || (active && retryable)
+    val pending = result == null || retesting || (active && retryable)
     // The verdict tints the outline, so a failing card can be picked out without reading it. A
     // row that is being (re)probed takes the neutral border, because its verdict is no longer
     // what the card is saying.
@@ -612,6 +631,51 @@ private fun RetryButton(onClick: () -> Unit) {
             contentDescription = "重试",
             modifier = Modifier.size(13.dp),
             tint = BadColor
+        )
+    }
+}
+
+/**
+ * Section-level re-test: probes every card in one category and leaves the other groups' results
+ * as they are. It sits at the right of the category header, the only control on that line, and
+ * names its scope so it cannot be mistaken for the page-level 重新测试.
+ */
+@Composable
+private fun GroupRetestButton(running: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(percent = 50)
+    // Re-testing a whole group spends many requests, so it is confirmed by touch.
+    val action = hapticOnClick(HapticFeedbackType.Confirm, onClick)
+    val tint = MutedColor.copy(alpha = if (enabled) 1f else 0.45f)
+    Row(
+        Modifier
+            .height(22.dp)
+            .clip(shape)
+            .border(1.dp, MutedColor.copy(alpha = if (enabled) 0.32f else 0.16f), shape)
+            .clickable(enabled = enabled, onClick = action)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (running) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(11.dp),
+                color = MutedColor,
+                strokeWidth = 1.5.dp
+            )
+        } else {
+            Icon(
+                Lucide.RefreshCw,
+                contentDescription = null,
+                modifier = Modifier.size(11.dp),
+                tint = tint
+            )
+        }
+        Spacer(Modifier.width(3.dp))
+        Text(
+            text = "重测本组",
+            color = tint,
+            fontSize = 10.5.sp,
+            lineHeight = 13.sp,
+            maxLines = 1
         )
     }
 }

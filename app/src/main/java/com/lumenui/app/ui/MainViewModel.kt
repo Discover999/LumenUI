@@ -164,6 +164,11 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         connectivityRunner.retry(target)
     }
 
+    /** Re-probes every target in one category, leaving the other groups' results in place. */
+    fun retryConnectivityGroup(targets: List<ProbeTarget>) {
+        connectivityRunner.retryAll(targets)
+    }
+
     /**
      * Holds the connectivity results while a page showing them is open, so their TTL cannot clear
      * the grid — and the evidence page on top of it — while the user is looking at it.

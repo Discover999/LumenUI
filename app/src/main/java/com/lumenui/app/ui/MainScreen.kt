@@ -299,6 +299,7 @@ fun MainScreen(
                 targets = ConnectivityTargets.all.filter { it.name in selectedProbes },
                 running = connectivity.running,
                 retrying = connectivity.retrying,
+                retryingGroups = connectivity.retryingGroups,
                 results = connectivity.results,
                 samples = connectivity.samples,
                 reputation = connectivity.reputation,
@@ -306,6 +307,7 @@ fun MainScreen(
                 onRerun = { viewModel.runConnectivity() },
                 onSettings = { showProbeSettings = true },
                 onRetry = { target -> viewModel.retryConnectivity(target) },
+                onRetryGroup = { targets -> viewModel.retryConnectivityGroup(targets) },
                 onOpenDetail = { target ->
                     detailPage = target
                     detailTarget = target
