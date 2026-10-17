@@ -19,7 +19,9 @@ data class ProbeTarget(
     val domain: String = "",
     val url: String = "",
     val fallbackDomains: List<String> = emptyList(),
-    val unsupportedRegions: Set<String> = emptySet()
+    val unsupportedRegions: Set<String> = emptySet(),
+    /** The platform's own front page, opened from the evidence page's top bar. */
+    val homepage: String = ""
 )
 
 data class ProbeResult(

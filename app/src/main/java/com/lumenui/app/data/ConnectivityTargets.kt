@@ -24,54 +24,72 @@ object ConnectivityTargets {
         "VN", "TR"
     )
 
-    private fun trace(name: String, category: String, domain: String, unsupported: Set<String> = emptySet()) =
-        ProbeTarget(name, category, ProbeKind.TRACE, domain = domain, unsupportedRegions = unsupported)
+    private fun trace(
+        name: String,
+        category: String,
+        domain: String,
+        homepage: String,
+        unsupported: Set<String> = emptySet()
+    ) = ProbeTarget(
+        name,
+        category,
+        ProbeKind.TRACE,
+        domain = domain,
+        homepage = homepage,
+        unsupportedRegions = unsupported
+    )
 
-    private fun simple(name: String, category: String, url: String) =
-        ProbeTarget(name, category, ProbeKind.SIMPLE, url = url)
+    private fun simple(name: String, category: String, url: String, homepage: String = url) =
+        ProbeTarget(name, category, ProbeKind.SIMPLE, url = url, homepage = homepage)
 
     val all: List<ProbeTarget> = listOf(
         // AI
-        ProbeTarget("OpenAI", AI, ProbeKind.OPENAI),
-        trace("Claude", AI, "api.anthropic.com", CLAUDE_UNSUPPORTED),
-        ProbeTarget("Gemini", AI, ProbeKind.GEMINI),
-        trace("Grok", AI, "api.x.ai"),
-        trace("Perplexity", AI, "www.perplexity.ai"),
-        trace("OpenRouter", AI, "openrouter.ai"),
-        trace("Poe", AI, "poe.com"),
-        trace("Suno", AI, "suno.com"),
+        ProbeTarget("OpenAI", AI, ProbeKind.OPENAI, homepage = "https://openai.com/"),
+        trace("Claude", AI, "api.anthropic.com", "https://claude.ai/", CLAUDE_UNSUPPORTED),
+        ProbeTarget("Gemini", AI, ProbeKind.GEMINI, homepage = "https://gemini.google.com/"),
+        trace("Grok", AI, "api.x.ai", "https://grok.com/"),
+        trace("Perplexity", AI, "www.perplexity.ai", "https://www.perplexity.ai/"),
+        trace("OpenRouter", AI, "openrouter.ai", "https://openrouter.ai/"),
+        trace("Poe", AI, "poe.com", "https://poe.com/"),
+        trace("Suno", AI, "suno.com", "https://suno.com/"),
 
         // Streaming
-        ProbeTarget("Netflix", STREAMING, ProbeKind.NETFLIX),
-        ProbeTarget("Disney+", STREAMING, ProbeKind.DISNEY),
-        ProbeTarget("YouTube", STREAMING, ProbeKind.YOUTUBE),
-        ProbeTarget("Spotify", STREAMING, ProbeKind.SPOTIFY),
-        ProbeTarget("TikTok", STREAMING, ProbeKind.TIKTOK),
-        trace("Crunchyroll", STREAMING, "crunchyroll.com"),
-        ProbeTarget("HBO Max", STREAMING, ProbeKind.HBO),
-        ProbeTarget("Twitch", STREAMING, ProbeKind.PING, url = "https://www.twitch.tv/"),
-        ProbeTarget("Apple TV+", STREAMING, ProbeKind.PING, url = "https://tv.apple.com/"),
+        ProbeTarget("Netflix", STREAMING, ProbeKind.NETFLIX, homepage = "https://www.netflix.com/"),
+        ProbeTarget("Disney+", STREAMING, ProbeKind.DISNEY, homepage = "https://www.disneyplus.com/"),
+        ProbeTarget("YouTube", STREAMING, ProbeKind.YOUTUBE, homepage = "https://www.youtube.com/"),
+        ProbeTarget("Spotify", STREAMING, ProbeKind.SPOTIFY, homepage = "https://www.spotify.com/"),
+        ProbeTarget("TikTok", STREAMING, ProbeKind.TIKTOK, homepage = "https://www.tiktok.com/"),
+        trace("Crunchyroll", STREAMING, "crunchyroll.com", "https://www.crunchyroll.com/"),
+        ProbeTarget("HBO Max", STREAMING, ProbeKind.HBO, homepage = "https://www.max.com/"),
+        ProbeTarget(
+            "Twitch", STREAMING, ProbeKind.PING,
+            url = "https://www.twitch.tv/", homepage = "https://www.twitch.tv/"
+        ),
+        ProbeTarget(
+            "Apple TV+", STREAMING, ProbeKind.PING,
+            url = "https://tv.apple.com/", homepage = "https://tv.apple.com/"
+        ),
 
         // Common & developer
-        simple("Google", COMMON, "https://www.google.com/generate_204"),
-        ProbeTarget("GitHub", COMMON, ProbeKind.GITHUB),
-        trace("GitLab", COMMON, "gitlab.com"),
+        simple("Google", COMMON, "https://www.google.com/generate_204", "https://www.google.com/"),
+        ProbeTarget("GitHub", COMMON, ProbeKind.GITHUB, homepage = "https://github.com/"),
+        trace("GitLab", COMMON, "gitlab.com", "https://gitlab.com/"),
         simple("Wikipedia", COMMON, "https://www.wikipedia.org/"),
-        trace("npm", COMMON, "registry.npmjs.org"),
-        trace("cdnjs", COMMON, "cdnjs.cloudflare.com"),
-        trace("unpkg", COMMON, "unpkg.com"),
-        trace("Node.js", COMMON, "nodejs.org"),
+        trace("npm", COMMON, "registry.npmjs.org", "https://www.npmjs.com/"),
+        trace("cdnjs", COMMON, "cdnjs.cloudflare.com", "https://cdnjs.com/"),
+        trace("unpkg", COMMON, "unpkg.com", "https://unpkg.com/"),
+        trace("Node.js", COMMON, "nodejs.org", "https://nodejs.org/"),
         simple("Apple", COMMON, "https://www.apple.com/"),
 
         // Social
-        trace("X (Twitter)", SOCIAL, "x.com"),
-        trace("Discord", SOCIAL, "gateway.discord.gg"),
-        ProbeTarget("Reddit", SOCIAL, ProbeKind.REDDIT),
+        trace("X (Twitter)", SOCIAL, "x.com", "https://x.com/"),
+        trace("Discord", SOCIAL, "gateway.discord.gg", "https://discord.com/"),
+        ProbeTarget("Reddit", SOCIAL, ProbeKind.REDDIT, homepage = "https://www.reddit.com/"),
         simple("Telegram", SOCIAL, "https://telegram.org/"),
-        trace("Medium", SOCIAL, "medium.com"),
-        trace("Stack Overflow", SOCIAL, "stackoverflow.com"),
-        trace("Quora", SOCIAL, "www.quora.com"),
-        trace("V2EX", SOCIAL, "v2ex.com"),
+        trace("Medium", SOCIAL, "medium.com", "https://medium.com/"),
+        trace("Stack Overflow", SOCIAL, "stackoverflow.com", "https://stackoverflow.com/"),
+        trace("Quora", SOCIAL, "www.quora.com", "https://www.quora.com/"),
+        trace("V2EX", SOCIAL, "v2ex.com", "https://www.v2ex.com/"),
 
         // Mainland China
         simple("百度", CHINA, "https://www.baidu.com/"),
@@ -81,16 +99,22 @@ object ConnectivityTargets {
 
         // Gaming
         simple("Steam", GAMING, "https://store.steampowered.com/"),
-        trace("Epic Games", GAMING, "store.epicgames.com"),
-        trace("Ubisoft", GAMING, "store.ubisoft.com"),
-        trace("Humble Bundle", GAMING, "humblebundle.com"),
-        ProbeTarget("PlayStation", GAMING, ProbeKind.PING, url = "https://www.playstation.com/"),
-        ProbeTarget("Battle.net", GAMING, ProbeKind.PING, url = "https://www.battle.net/"),
+        trace("Epic Games", GAMING, "store.epicgames.com", "https://store.epicgames.com/"),
+        trace("Ubisoft", GAMING, "store.ubisoft.com", "https://www.ubisoft.com/"),
+        trace("Humble Bundle", GAMING, "humblebundle.com", "https://www.humblebundle.com/"),
+        ProbeTarget(
+            "PlayStation", GAMING, ProbeKind.PING,
+            url = "https://www.playstation.com/", homepage = "https://www.playstation.com/"
+        ),
+        ProbeTarget(
+            "Battle.net", GAMING, ProbeKind.PING,
+            url = "https://www.battle.net/", homepage = "https://www.battle.net/"
+        ),
 
         // Crypto / payments
-        trace("Coinbase", CRYPTO, "www.coinbase.com"),
-        trace("OKX", CRYPTO, "www.okx.com"),
-        trace("Kraken", CRYPTO, "www.kraken.com"),
+        trace("Coinbase", CRYPTO, "www.coinbase.com", "https://www.coinbase.com/"),
+        trace("OKX", CRYPTO, "www.okx.com", "https://www.okx.com/"),
+        trace("Kraken", CRYPTO, "www.kraken.com", "https://www.kraken.com/"),
         simple("PayPal", CRYPTO, "https://www.paypal.com/")
     )
 

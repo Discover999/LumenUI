@@ -1,5 +1,6 @@
 package com.lumenui.app.ui.components
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -33,11 +34,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import com.composables.icons.lucide.ArrowLeft
+import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Globe
 import com.composables.icons.lucide.Lucide
 import com.lumenui.app.data.IpReputation
@@ -131,6 +136,15 @@ fun ConnectivityDetailScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
+                    target.homepage.takeIf { it.isNotBlank() }?.let { homepage ->
+                        val context = LocalContext.current
+                        val openHomepage = hapticOnClick(HapticFeedbackType.ContextClick) {
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, homepage.toUri()))
+                            }
+                        }
+                        GlassIconButton(Lucide.ExternalLink, "在浏览器打开", openHomepage)
+                    }
                 }
             }
 
