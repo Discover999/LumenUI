@@ -44,6 +44,17 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         intent.toStartDestination()?.let { startDestination = it }
     }
+
+    /**
+     * A window restored from the keyguard can come back with a cached surface: the WebView
+     * repaints itself as a native view, but the Compose layer is not invalidated, so the app's
+     * top bar stays blank until the next touch. The UI tree is intact meanwhile — the chrome is
+     * composed but not drawn. Ask for a frame as soon as the window has focus again.
+     */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) window.decorView.postInvalidateOnAnimation()
+    }
 }
 
 /** Maps a launcher shortcut's action onto the page it should open, or null for a plain launch. */
