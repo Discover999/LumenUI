@@ -41,6 +41,7 @@ import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.Globe
 import com.composables.icons.lucide.Lucide
 import com.lumenui.app.data.IpReputation
+import com.lumenui.app.data.IpRisk
 import com.lumenui.app.data.ProbeResult
 import com.lumenui.app.data.ProbeStatus
 import com.lumenui.app.data.ProbeTarget
@@ -150,6 +151,10 @@ fun ConnectivityDetailScreen(
                 if (result.ip != null || result.region != null || reputation != null) {
                     Spacer(Modifier.height(12.dp))
                     ExitCard(result, reputation)
+                }
+                if (reputation != null) {
+                    Spacer(Modifier.height(12.dp))
+                    IpProfileCard(reputation)
                 }
                 if (result.samples.isNotEmpty()) {
                     Spacer(Modifier.height(12.dp))
@@ -297,12 +302,6 @@ private fun ExitCard(result: ProbeResult, reputation: IpReputation?) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            // The pill is pinned right, so it lines up whatever else the row carries.
-            Spacer(Modifier.weight(1f))
-            reputation?.let { rep ->
-                Spacer(Modifier.width(8.dp))
-                ReputationPill(rep)
-            }
         }
         result.ip?.let { ip ->
             Spacer(Modifier.height(8.dp))
@@ -319,8 +318,78 @@ private fun ExitCard(result: ProbeResult, reputation: IpReputation?) {
                     Spacer(Modifier.width(8.dp))
                     Tag("WARP")
                 }
+                // The pill qualifies the address, so it sits on the address line rather than
+                // being pinned to the region row above it.
+                reputation?.let { rep ->
+                    Spacer(Modifier.weight(1f))
+                    ReputationPill(rep, large = true)
+                }
             }
         }
+    }
+}
+
+/**
+ * What the egress address is, beyond the reputation pill: the risk its flags imply, plus the
+ * network facts behind it. The grade is derived from the flags ip-api.com reports, so the card
+ * says so rather than passing it off as a third-party score.
+ */
+@Composable
+private fun IpProfileCard(reputation: IpReputation) {
+    val glass = LocalGlassColors.current
+    val shape = RoundedCornerShape(14.dp)
+    val (riskLabel, riskColor) = when (reputation.risk) {
+        IpRisk.HIGH -> "高风险" to BadColor
+        IpRisk.MEDIUM -> "中风险" to WarnColor
+        IpRisk.LOW -> "低风险" to OkColor
+    }
+    val rows = buildList {
+        reputation.operator.takeIf { it.isNotBlank() }?.let { add(EvidenceLine("运营商", it)) }
+        reputation.reverse.takeIf { it.isNotBlank() }?.let { add(EvidenceLine("反向解析", it)) }
+        reputation.location.takeIf { it.isNotBlank() }?.let { add(EvidenceLine("IP 归属", it)) }
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(glass.cardBg)
+            .border(1.dp, glass.cardBorder, shape)
+            .padding(16.dp)
+    ) {
+        Text("IP 画像", color = MutedColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = riskLabel,
+                color = riskColor,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = reputation.riskSignals.joinToString(" · "),
+                color = MutedColor,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(bottom = 3.dp)
+            )
+        }
+        rows.forEach { line ->
+            Spacer(Modifier.height(10.dp))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(glass.cardBorder))
+            Spacer(Modifier.height(10.dp))
+            DetailLine(line)
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = "风险等级由 ip-api.com 的代理/机房标记与反向解析判断，非第三方评分。",
+            color = MutedColor.copy(alpha = 0.8f),
+            fontSize = 10.5.sp,
+            lineHeight = 14.sp
+        )
     }
 }
 

@@ -616,22 +616,38 @@ private fun RetryButton(onClick: () -> Unit) {
     }
 }
 
-/** Tiny pill tagging the egress IP as residential / mobile / datacenter / proxy. */
+/**
+ * Pill tagging the egress IP as residential / mobile / datacenter / proxy. The grid uses the
+ * compact form; the detail page passes [large] because a 10 sp pill reads as a speck beside the
+ * 17 sp address it qualifies.
+ */
 @Composable
-internal fun ReputationPill(rep: IpReputation) {
+internal fun ReputationPill(rep: IpReputation, large: Boolean = false) {
     val color = when {
         rep.proxy -> BadColor
         rep.hosting -> WarnColor
         rep.mobile -> MutedColor
         else -> OkColor
     }
+    val shape = RoundedCornerShape(percent = 50)
     Box(
         Modifier
-            .clip(RoundedCornerShape(percent = 50))
+            .clip(shape)
             .background(color.copy(alpha = 0.16f))
-            .padding(horizontal = 6.dp, vertical = 1.dp)
+            .then(
+                if (large) Modifier.border(1.dp, color.copy(alpha = 0.32f), shape) else Modifier
+            )
+            .padding(
+                horizontal = if (large) 10.dp else 6.dp,
+                vertical = if (large) 3.dp else 1.dp
+            )
     ) {
-        Text(text = rep.label, color = color, fontSize = 10.sp, lineHeight = 12.sp)
+        Text(
+            text = rep.label,
+            color = color,
+            fontSize = if (large) 12.sp else 10.sp,
+            lineHeight = if (large) 15.sp else 12.sp
+        )
     }
 }
 
