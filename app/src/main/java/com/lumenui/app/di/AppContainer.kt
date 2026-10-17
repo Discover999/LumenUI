@@ -6,9 +6,12 @@ import com.lumenui.app.data.ConnectivityProbe
 import com.lumenui.app.data.DnsLeakProbe
 import com.lumenui.app.data.HttpConnectivityProbe
 import com.lumenui.app.data.HttpIpReputationApi
+import com.lumenui.app.data.HttpSpeedTester
 import com.lumenui.app.data.IpReputationApi
 import com.lumenui.app.data.MihomoApi
 import com.lumenui.app.data.SettingsRepository
+import com.lumenui.app.data.SpeedHistoryStore
+import com.lumenui.app.data.SpeedTester
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -26,5 +29,7 @@ class AppContainer(context: Context) {
     val mihomoApi = MihomoApi(httpClient)
     val connectivity: ConnectivityProbe = HttpConnectivityProbe(httpClient)
     val ipReputation: IpReputationApi = HttpIpReputationApi(httpClient)
+    val speedTester: SpeedTester = HttpSpeedTester(httpClient)
+    val speedHistory = SpeedHistoryStore(prefs)
     val dnsLeak = DnsLeakProbe(httpClient)
 }

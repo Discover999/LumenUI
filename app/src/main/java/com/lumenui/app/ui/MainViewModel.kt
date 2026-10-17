@@ -6,6 +6,7 @@ import com.lumenui.app.data.Backend
 import com.lumenui.app.data.ConnectivityTargets
 import com.lumenui.app.data.Probe
 import com.lumenui.app.data.ProbeTarget
+import com.lumenui.app.data.SpeedTestState
 import com.lumenui.app.di.AppContainer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +35,15 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     /** State of the connectivity page, driven by [connectivityRunner]. */
     val connectivity: StateFlow<ConnectivityState> = connectivityRunner.state
+
+    private val speedTestRunner = SpeedTestRunner(
+        container.speedTester,
+        container.ipReputation,
+        viewModelScope
+    ) { container.speedHistory.add(it) }
+
+    /** State of the speed-test page; a finished run stays here until the next start. */
+    val speedTest: StateFlow<SpeedTestState> = speedTestRunner.state
 
     private val _connectivityTargets = MutableStateFlow(container.settings.connectivityTargets)
     val connectivityTargets: StateFlow<Set<String>> = _connectivityTargets.asStateFlow()
@@ -167,6 +177,21 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     /** Re-probes every target in one category, leaving the other groups' results in place. */
     fun retryConnectivityGroup(targets: List<ProbeTarget>) {
         connectivityRunner.retryAll(targets)
+    }
+
+    /** Starts a speed test of the current egress. */
+    fun startSpeedTest() {
+        speedTestRunner.start()
+    }
+
+    /** Stops a run in progress and returns the page to idle. */
+    fun cancelSpeedTest() {
+        speedTestRunner.cancel()
+    }
+
+    /** Leaving the page returns it to the start screen; the result is kept in history. */
+    fun leaveSpeedTest() {
+        speedTestRunner.reset()
     }
 
     /**

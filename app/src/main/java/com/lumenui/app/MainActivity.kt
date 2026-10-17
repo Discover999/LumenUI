@@ -61,8 +61,10 @@ class MainActivity : ComponentActivity() {
 private fun Intent?.toStartDestination(): StartDestination? = when (this?.action) {
     ACTION_CONNECTIVITY -> StartDestination.CONNECTIVITY
     ACTION_DNS -> StartDestination.DNS
+    ACTION_SPEED -> StartDestination.SPEED
     else -> null
 }
 
 private const val ACTION_CONNECTIVITY = "com.lumenui.app.shortcut.CONNECTIVITY"
 private const val ACTION_DNS = "com.lumenui.app.shortcut.DNS"
+private const val ACTION_SPEED = "com.lumenui.app.shortcut.SPEED"

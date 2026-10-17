@@ -31,6 +31,7 @@ import com.lumenui.app.data.Backend
 import com.lumenui.app.data.ConnectivityTargets
 import com.lumenui.app.data.ProbeTarget
 import com.composables.icons.lucide.ExternalLink
+import com.composables.icons.lucide.Gauge
 import com.composables.icons.lucide.Globe
 import com.composables.icons.lucide.Info
 import com.composables.icons.lucide.Lucide
@@ -47,6 +48,8 @@ import com.lumenui.app.ui.components.FullScreenDialog
 import com.lumenui.app.ui.components.GlassMenuItem
 import com.lumenui.app.ui.components.PanelWebView
 import com.lumenui.app.ui.components.SetupScreen
+import com.lumenui.app.ui.components.SpeedHistoryScreen
+import com.lumenui.app.ui.components.SpeedTestScreen
 import com.lumenui.app.ui.theme.LocalGlassColors
 import com.lumenui.app.web.PanelAssets
 import com.lumenui.app.web.PanelController
@@ -72,6 +75,7 @@ fun MainScreen(
     val probes by viewModel.probes.collectAsStateWithLifecycle()
     val connectivity by viewModel.connectivity.collectAsStateWithLifecycle()
     val selectedProbes by viewModel.connectivityTargets.collectAsStateWithLifecycle()
+    val speedTest by viewModel.speedTest.collectAsStateWithLifecycle()
 
     val controller = remember { PanelController() }
     val latestCurrent by rememberUpdatedState(current)
@@ -91,6 +95,8 @@ fun MainScreen(
     var showAbout by remember { mutableStateOf(false) }
     var showConnectivity by remember { mutableStateOf(false) }
     var showDnsLeak by remember { mutableStateOf(false) }
+    var showSpeedTest by remember { mutableStateOf(false) }
+    var showSpeedHistory by remember { mutableStateOf(false) }
     var showProbeSettings by remember { mutableStateOf(false) }
     var detailTarget by remember { mutableStateOf<ProbeTarget?>(null) }
     var editing by remember { mutableStateOf<Backend?>(null) }
@@ -100,6 +106,8 @@ fun MainScreen(
     // animate and the detail page keeps the target it was opened for.
     var connectivityPage by remember { mutableStateOf(false) }
     var dnsPage by remember { mutableStateOf(false) }
+    var speedPage by remember { mutableStateOf(false) }
+    var speedHistoryPage by remember { mutableStateOf(false) }
     var detailPage by remember { mutableStateOf<ProbeTarget?>(null) }
 
     // Hand the selected backend to the panel whenever it changes. Applied at most once
@@ -126,11 +134,12 @@ fun MainScreen(
         viewModel.holdConnectivityResults(resultsOnScreen)
     }
 
-    // A launcher shortcut asked for a page: open it once the panel exists, then report it
-    // handled so returning to the app later does not re-open the same page.
+    // A launcher shortcut asked for a page: open it, then report it handled so returning to
+    // the app later does not re-open the same page. The panel pages need a backend; the speed
+    // page measures the network directly, so it opens even before one is configured.
     LaunchedEffect(startDestination, current?.id) {
         val destination = startDestination ?: return@LaunchedEffect
-        if (current == null) return@LaunchedEffect
+        if (current == null && destination != StartDestination.SPEED) return@LaunchedEffect
         when (destination) {
             StartDestination.CONNECTIVITY -> {
                 connectivityPage = true
@@ -139,6 +148,10 @@ fun MainScreen(
             StartDestination.DNS -> {
                 dnsPage = true
                 showDnsLeak = true
+            }
+            StartDestination.SPEED -> {
+                speedPage = true
+                showSpeedTest = true
             }
         }
         onStartDestinationHandled()
@@ -155,11 +168,14 @@ fun MainScreen(
     // through a page the user can still see.
     val connectivityClosing = connectivityPage && !showConnectivity
     val dnsClosing = dnsPage && !showDnsLeak
+    val speedClosing = speedPage && !showSpeedTest
+    val speedHistoryClosing = speedHistoryPage && !showSpeedHistory
     val detailClosing = detailPage?.let { detailTarget?.name != it.name } == true
 
     BackHandler(
-        enabled = showConnectivity || showDnsLeak || detailVisible ||
-            connectivityClosing || dnsClosing || detailClosing || canGoBack
+        enabled = showConnectivity || showDnsLeak || showSpeedTest || showSpeedHistory ||
+            detailVisible || connectivityClosing || dnsClosing || speedClosing ||
+            speedHistoryClosing || detailClosing || canGoBack
     ) {
         when {
             // The detail page is on top of the connectivity page, so it closes first.
@@ -169,6 +185,10 @@ fun MainScreen(
             connectivityClosing -> Unit
             showDnsLeak -> showDnsLeak = false
             dnsClosing -> Unit
+            showSpeedHistory -> showSpeedHistory = false
+            speedHistoryClosing -> Unit
+            showSpeedTest -> showSpeedTest = false
+            speedClosing -> Unit
             else -> controller.goBack()
         }
     }
@@ -240,6 +260,11 @@ fun MainScreen(
                             dismiss()
                             dnsPage = true
                             showDnsLeak = true
+                        }
+                        GlassMenuItem(Lucide.Gauge, "网络测速") {
+                            dismiss()
+                            speedPage = true
+                            showSpeedTest = true
                         }
                         GlassMenuItem(Lucide.ExternalLink, "在浏览器打开") {
                             dismiss()
@@ -335,6 +360,42 @@ fun MainScreen(
             DnsLeakScreen(
                 onBack = { showDnsLeak = false },
                 load = { app.container.dnsLeak.run() }
+            )
+        }
+    }
+
+    if (speedPage) {
+        FullScreenDialog(
+            visible = showSpeedTest,
+            onDismissRequest = { showSpeedTest = false },
+            onClosed = {
+                speedPage = false
+                viewModel.leaveSpeedTest()
+            }
+        ) {
+            SpeedTestScreen(
+                state = speedTest,
+                onBack = { showSpeedTest = false },
+                onStart = { viewModel.startSpeedTest() },
+                onCancel = { viewModel.cancelSpeedTest() },
+                onHistory = {
+                    speedHistoryPage = true
+                    showSpeedHistory = true
+                }
+            )
+        }
+    }
+
+    if (speedHistoryPage) {
+        FullScreenDialog(
+            visible = showSpeedHistory,
+            onDismissRequest = { showSpeedHistory = false },
+            onClosed = { speedHistoryPage = false }
+        ) {
+            SpeedHistoryScreen(
+                load = { app.container.speedHistory.load() },
+                clear = { app.container.speedHistory.clear() },
+                onBack = { showSpeedHistory = false }
             )
         }
     }

@@ -5,4 +5,4 @@ package com.lumenui.app.ui
  * top bar and a menu tap first. Only the full-screen pages are listed: they are the ones
  * that read well as an entry point, and each is already reachable from the menu.
  */
-enum class StartDestination { CONNECTIVITY, DNS }
+enum class StartDestination { CONNECTIVITY, DNS, SPEED }

@@ -33,4 +33,16 @@
             android:targetPackage="com.lumenui.app" />
     </shortcut>
 
+    <shortcut
+        android:shortcutId="speed"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_speed"
+        android:shortcutShortLabel="@string/shortcut_speed_short"
+        android:shortcutLongLabel="@string/shortcut_speed_short">
+        <intent
+            android:action="com.lumenui.app.shortcut.SPEED"
+            android:targetClass="com.lumenui.app.MainActivity"
+            android:targetPackage="com.lumenui.app" />
+    </shortcut>
+
 </shortcuts>
