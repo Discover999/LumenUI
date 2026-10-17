@@ -35,6 +35,14 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
         .followRedirects(true)
         .build()
 
+    /**
+     * PING samples must read the same first hop as [checkPing]; following the chain would time
+     * the site's OAuth callback (Battle.net) and mark every sample failed beside a 可用 verdict.
+     */
+    private val sampleNoFollowClient: OkHttpClient = sampleClient.newBuilder()
+        .followRedirects(false)
+        .build()
+
     override suspend fun probe(
         target: ProbeTarget,
         onSample: ((Long) -> Unit)?
@@ -69,13 +77,16 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
     ): List<Long> = coroutineScope {
         val url = sampleUrl(target) ?: return@coroutineScope emptyList()
         val request = request(url).get().build()
+        // PING is graded on the first hop, so its samples must be too; every other kind's verdict
+        // reads the followed response, so their samples keep following.
+        val client = if (target.kind == ProbeKind.PING) sampleNoFollowClient else sampleClient
         val gate = Semaphore(SAMPLE_CONCURRENCY)
         val deferred = (0 until count).map {
             async(Dispatchers.IO) {
                 gate.withPermit {
                     val start = System.currentTimeMillis()
                     val ok = runCatching {
-                        sampleClient.newCall(request).execute().use { res -> res.code in 200..399 }
+                        client.newCall(request).execute().use { res -> res.code in 200..399 }
                     }.getOrDefault(false)
                     if (ok) System.currentTimeMillis() - start else -1L
                 }
@@ -422,10 +433,15 @@ class HttpConnectivityProbe(base: OkHttpClient) : ConnectivityProbe {
      * Reachability-only probe. Reports UNLOCKED when the site answers and BLOCKED when it does
      * not, and deliberately makes no claim about region availability — there is no established
      * criterion for these platforms, so calling a reachable site "available" would be a guess.
+     *
+     * Redirects are not followed: the site's own 3xx already proves the host answered, while the
+     * chain can end somewhere that is not the site at all. Battle.net is the case that exposed
+     * this — `www.battle.net` 301s to `shop.battle.net`, which bounces to an OAuth callback that
+     * answers 401 to a cookie-less client, and following it made a reachable host read 不可用.
      */
     private fun checkPing(target: ProbeTarget, start: Long): ProbeResult {
         val url = sampleUrl(target) ?: return target.done(start, ProbeStatus.FAILED)
-        val response = get(followClient, url) ?: return target.done(start, ProbeStatus.FAILED)
+        val response = get(noFollowClient, url) ?: return target.done(start, ProbeStatus.FAILED)
         response.use { res ->
             val status = if (res.code in 200..399) ProbeStatus.UNLOCKED else ProbeStatus.BLOCKED
             return target.done(start, status)
