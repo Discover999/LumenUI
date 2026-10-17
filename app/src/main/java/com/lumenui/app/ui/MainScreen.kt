@@ -394,6 +394,7 @@ fun MainScreen(
         ) {
             SpeedHistoryScreen(
                 load = { app.container.speedHistory.load() },
+                remove = { app.container.speedHistory.remove(it) },
                 clear = { app.container.speedHistory.clear() },
                 onBack = { showSpeedHistory = false }
             )

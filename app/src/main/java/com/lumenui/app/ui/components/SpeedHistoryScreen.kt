@@ -1,8 +1,7 @@
 package com.lumenui.app.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,10 +21,10 @@ import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,10 +32,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,18 +63,31 @@ import java.util.Locale
 @Composable
 fun SpeedHistoryScreen(
     load: () -> List<SpeedHistoryEntry>,
+    remove: (Long) -> Unit,
     clear: () -> Unit,
     onBack: () -> Unit
 ) {
     val glass = LocalGlassColors.current
     val noise = rememberFrostNoise()
     var entries by remember { mutableStateOf(load()) }
-    var confirmClear by remember { mutableStateOf(false) }
-    val armClear = hapticOnClick(HapticFeedbackType.ContextClick) { confirmClear = true }
-    val doClear = hapticOnClick(HapticFeedbackType.Confirm) {
-        clear()
-        entries = emptyList()
-        confirmClear = false
+    var deleteTarget by remember { mutableStateOf<DeleteTarget?>(null) }
+    val armClear = hapticOnClick(HapticFeedbackType.ContextClick) {
+        deleteTarget = DeleteTarget.All
+    }
+    val target = deleteTarget
+    val confirmDelete = hapticOnClick(HapticFeedbackType.Confirm) {
+        when (val current = target) {
+            is DeleteTarget.One -> {
+                remove(current.timestamp)
+                entries = entries.filterNot { it.timestamp == current.timestamp }
+            }
+            DeleteTarget.All -> {
+                clear()
+                entries = emptyList()
+            }
+            null -> Unit
+        }
+        deleteTarget = null
     }
 
     Box(
@@ -118,67 +131,108 @@ fun SpeedHistoryScreen(
                     }
                 }
             }
-            if (confirmClear) {
-                ClearConfirmBar(
-                    onCancel = { confirmClear = false },
-                    onClear = doClear
-                )
-            }
             if (entries.isEmpty()) {
                 EmptyHistory(Modifier.weight(1f))
             } else {
                 LazyColumn(
                     Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(entries, key = { it.timestamp }) { entry ->
-                        HistoryCard(entry)
+                        val armDelete = hapticOnClick(HapticFeedbackType.ContextClick) {
+                            deleteTarget = DeleteTarget.One(entry.timestamp)
+                        }
+                        HistoryCard(entry, armDelete)
+                    }
+                    item {
+                        Text(
+                            text = "长按单条记录可删除",
+                            color = MutedColor,
+                            fontSize = 10.5.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                        )
                     }
                 }
             }
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
+        DeleteHistoryDialog(
+            target = target,
+            count = entries.size,
+            onCancel = { deleteTarget = null },
+            onConfirm = confirmDelete
+        )
     }
 }
 
 @Composable
-private fun ClearConfirmBar(onCancel: () -> Unit, onClear: () -> Unit) {
-    val shape = RoundedCornerShape(12.dp)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .clip(shape)
-            .background(BadColor.copy(alpha = 0.10f))
-            .border(1.dp, BadColor.copy(alpha = 0.25f), shape)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+private fun DeleteHistoryDialog(
+    target: DeleteTarget?,
+    count: Int,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    GlassDialog(
+        visible = target != null,
+        onDismissRequest = onCancel,
+        spring = FastDialogSpring
     ) {
-        Text(
-            text = "清空全部历史？",
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.sp,
-            modifier = Modifier.weight(1f)
-        )
-        Text(
-            text = "取消",
-            color = MutedColor,
-            fontSize = 12.sp,
-            modifier = Modifier
-                .clickable(onClick = onCancel)
-                .padding(horizontal = 8.dp, vertical = 4.dp)
-        )
-        Text(
-            text = "清空",
-            color = BadColor,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier
-                .clickable(onClick = onClear)
-                .padding(horizontal = 8.dp, vertical = 4.dp)
-        )
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp)
+        ) {
+            Text(
+                text = when (target) {
+                    is DeleteTarget.One -> "删除这条记录？"
+                    DeleteTarget.All -> "清空全部历史？"
+                    null -> ""
+                },
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = when (target) {
+                    is DeleteTarget.One ->
+                        "${formatTimestamp(target.timestamp)} 的测速记录，删除后无法恢复。"
+                    DeleteTarget.All -> "共 $count 条记录，删除后无法恢复。"
+                    null -> ""
+                },
+                color = MutedColor,
+                fontSize = 12.5.sp,
+                lineHeight = 18.sp
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onCancel) {
+                    Text("取消", color = MutedColor, fontSize = 13.sp)
+                }
+                TextButton(onClick = onConfirm) {
+                    Text(
+                        text = if (target is DeleteTarget.All) "清空" else "删除",
+                        color = BadColor,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
     }
+}
+
+private sealed interface DeleteTarget {
+    data class One(val timestamp: Long) : DeleteTarget
+    data object All : DeleteTarget
 }
 
 @Composable
@@ -209,14 +263,20 @@ private fun EmptyHistory(modifier: Modifier) {
 }
 
 @Composable
-private fun HistoryCard(entry: SpeedHistoryEntry) {
+private fun HistoryCard(entry: SpeedHistoryEntry, onDelete: () -> Unit) {
     val provider = runCatching { SpeedProvider.valueOf(entry.provider) }
         .getOrDefault(SpeedProvider.CLOUDFLARE)
     val providerText = providerLabel(provider) +
         (if (entry.uploadUnavailable) " · 上传未测" else "")
     val onSurface = MaterialTheme.colorScheme.onSurface
 
-    GlassCard(Modifier.fillMaxWidth()) {
+    GlassCard(
+        Modifier
+            .fillMaxWidth()
+            .pointerInput(entry.timestamp) {
+                detectTapGestures(onLongPress = { onDelete() })
+            }
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = formatTimestamp(entry.timestamp),

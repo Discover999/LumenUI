@@ -302,6 +302,12 @@ private val DIALOG_SPRING: SpringSpec<Float> = spring(
     stiffness = Spring.StiffnessMediumLow
 )
 
+/** A snappier variant for small confirmation dialogs, where the soft default reads as slow. */
+internal val FastDialogSpring: SpringSpec<Float> = spring(
+    dampingRatio = Spring.DampingRatioNoBouncy,
+    stiffness = Spring.StiffnessMedium
+)
+
 /**
  * Frosted modal dialog: captures the window behind it (a snapshot, since the dialog is its
  * own window over the WebView) and floats a translucent [FrostedMenu] card on top, so
@@ -321,6 +327,7 @@ fun GlassDialog(
     visible: Boolean,
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
+    spring: SpringSpec<Float> = DIALOG_SPRING,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val open = remember { Animatable(0f) }
@@ -333,10 +340,10 @@ fun GlassDialog(
             // The window is created on this frame, so wait for its first layout: otherwise the
             // spring's first step is spent on a content box that has no size yet.
             withFrameNanos { }
-            open.animateTo(1f, DIALOG_SPRING)
+            open.animateTo(1f, spring)
         } else {
             if (!present) return@LaunchedEffect
-            open.animateTo(0f, DIALOG_SPRING)
+            open.animateTo(0f, spring)
             present = false
         }
     }

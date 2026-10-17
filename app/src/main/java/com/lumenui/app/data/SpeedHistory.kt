@@ -32,13 +32,25 @@ class SpeedHistoryStore(private val prefs: SharedPreferences) {
     }.getOrNull().orEmpty()
 
     fun add(entry: SpeedHistoryEntry) {
-        val next = (listOf(entry) + load()).take(MAX_ENTRIES)
-        runCatching { json.encodeToString(next) }
-            .onSuccess { prefs.edit().putString(KEY, it).apply() }
+        save(listOf(entry) + load())
+    }
+
+    fun remove(timestamp: Long) {
+        save(load().filterNot { it.timestamp == timestamp })
     }
 
     fun clear() {
         prefs.edit().remove(KEY).apply()
+    }
+
+    private fun save(entries: List<SpeedHistoryEntry>) {
+        val next = entries.take(MAX_ENTRIES)
+        if (next.isEmpty()) {
+            prefs.edit().remove(KEY).apply()
+            return
+        }
+        runCatching { json.encodeToString(next) }
+            .onSuccess { prefs.edit().putString(KEY, it).apply() }
     }
 
     private companion object {
