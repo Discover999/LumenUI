@@ -4,6 +4,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Starting with Android 17, apps targeting SDK 37 have all traffic to LAN addresses
+         blocked until this runtime permission is granted. The mihomo backend is usually a
+         LAN address, and the panel's WebView inherits the app's grant, so without it both
+         the status probe and the panel fail while public internet traffic still works. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
     <!-- Backups would carry the encrypted backend secret, whose Keystore key cannot be
          restored onto another device, leaving an undecryptable value behind. Nothing else
          is persisted, so backups are disabled. -->

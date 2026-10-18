@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.lumenui.app.ui.MainScreen
 import com.lumenui.app.ui.StartDestination
+import com.lumenui.app.ui.components.LocalNetworkGate
 import com.lumenui.app.ui.theme.LumenTheme
 import com.lumenui.app.ui.theme.SystemBarAppearance
 
@@ -31,10 +32,12 @@ class MainActivity : ComponentActivity() {
             val darkTheme = isSystemInDarkTheme()
             LumenTheme(darkTheme) {
                 SystemBarAppearance(darkTheme)
-                MainScreen(
-                    startDestination = startDestination,
-                    onStartDestinationHandled = { startDestination = null }
-                )
+                LocalNetworkGate {
+                    MainScreen(
+                        startDestination = startDestination,
+                        onStartDestinationHandled = { startDestination = null }
+                    )
+                }
             }
         }
     }
