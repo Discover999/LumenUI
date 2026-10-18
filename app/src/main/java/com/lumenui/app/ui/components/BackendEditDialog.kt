@@ -23,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,14 +47,31 @@ fun BackendEditDialog(
     onSave: (Backend) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var name by remember { mutableStateOf(initial?.name.orEmpty()) }
-    var host by remember { mutableStateOf(initial?.host.orEmpty()) }
-    var port by remember { mutableStateOf((initial?.port ?: 9090).toString()) }
-    var secret by remember { mutableStateOf(initial?.secret.orEmpty()) }
-    var protocol by remember { mutableStateOf(initial?.protocol ?: "http") }
-    var secondaryPath by remember { mutableStateOf(initial?.secondaryPath.orEmpty()) }
+    var name by remember { mutableStateOf("") }
+    var host by remember { mutableStateOf("") }
+    var port by remember { mutableStateOf("9090") }
+    var secret by remember { mutableStateOf("") }
+    var protocol by remember { mutableStateOf("http") }
+    var secondaryPath by remember { mutableStateOf("") }
+    var addressError by remember { mutableStateOf(false) }
 
-    val portValid = port.toIntOrNull()?.let { it in 1..65535 } == true
+    // The dialog stays composed while it is closed, so the fields are reset from `initial`
+    // every time it opens instead of keeping the backend that was edited last.
+    LaunchedEffect(visible, initial) {
+        if (!visible) return@LaunchedEffect
+        name = initial?.name.orEmpty()
+        host = initial?.host.orEmpty()
+        port = (initial?.port ?: 9090).toString()
+        secret = initial?.secret.orEmpty()
+        protocol = initial?.protocol ?: "http"
+        secondaryPath = initial?.secondaryPath.orEmpty()
+        addressError = false
+    }
+
+    // A pasted `host:port` or URL carries its own port/path, which win over the fields.
+    val parsed = BackendInput.parse(host)
+    val effectivePort = parsed?.port ?: port.toIntOrNull()
+    val portValid = effectivePort != null && effectivePort in 1..65535
     val canSave = host.isNotBlank() && portValid
 
     GlassDialog(visible = visible, onDismissRequest = onDismiss) {
@@ -78,16 +96,32 @@ fun BackendEditDialog(
                 Spacer(Modifier.width(8.dp))
                 ProtocolChip("https", protocol == "https") { protocol = "https" }
             }
-            GlassField(host, { host = it.filter(::isHostChar).take(HOST_MAX) }, "地址 / IP")
+            GlassField(
+                value = host,
+                onValueChange = { input ->
+                    host = BackendInput.fold(input)
+                        .filter { c -> !c.isWhitespace() }
+                        .take(ADDRESS_MAX)
+                    addressError = false
+                },
+                label = "地址 / IP"
+            )
             GlassField(
                 value = port,
                 onValueChange = { input -> port = input.filter { it.isDigit() }.take(PORT_MAX) },
                 label = "端口",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
-            if (port.isNotEmpty() && !portValid) {
+            if (!portValid && (port.isNotEmpty() || parsed?.port != null)) {
                 Text(
                     "端口需在 1–65535 之间",
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp
+                )
+            }
+            if (addressError) {
+                Text(
+                    "无法识别这个地址：请填 host、host:port 或 http://host:port",
                     color = MaterialTheme.colorScheme.error,
                     fontSize = 12.sp
                 )
@@ -104,17 +138,20 @@ fun BackendEditDialog(
                 TextButton(
                     enabled = canSave,
                     onClick = {
-                        onSave(
-                            Backend(
-                                id = initial?.id ?: UUID.randomUUID().toString(),
-                                name = name.trim(),
-                                protocol = protocol,
-                                host = host.trim(),
-                                port = port.toIntOrNull() ?: 9090,
-                                secret = secret.trim(),
-                                secondaryPath = secondaryPath.trim()
-                            )
+                        val backend = Backend(
+                            id = initial?.id ?: UUID.randomUUID().toString(),
+                            name = name.trim(),
+                            protocol = parsed?.protocol ?: protocol,
+                            host = parsed?.host ?: host.trim(),
+                            port = parsed?.port ?: port.toIntOrNull() ?: 9090,
+                            secret = secret.trim(),
+                            secondaryPath = parsed?.secondaryPath ?: secondaryPath.trim()
                         )
+                        if (BackendInput.isValid(backend)) {
+                            onSave(backend)
+                        } else {
+                            addressError = true
+                        }
                     }
                 ) { Text("保存") }
             }
@@ -193,11 +230,7 @@ private fun ProtocolChip(label: String, selected: Boolean, onClick: () -> Unit) 
 }
 
 private const val NAME_MAX = 16
-private const val HOST_MAX = 253
+private const val ADDRESS_MAX = 512
 private const val PORT_MAX = 5
 private const val SECRET_MAX = 256
 private const val PATH_MAX = 128
-
-/** Host characters: hostname letters/digits/'.'/'-', IPv4 digits/'.', or IPv6 hex + ':'/'.'. */
-private fun isHostChar(c: Char): Boolean =
-    c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '.' || c == '-' || c == '_' || c == ':'
