@@ -15,6 +15,7 @@ data class SpeedHistoryEntry(
     val jitterMs: Double? = null,
     val provider: String = SpeedProvider.CLOUDFLARE.name,
     val uploadUnavailable: Boolean = false,
+    val uploadFallback: Boolean = false,
     val egressIp: String? = null,
     val egressRegion: String? = null,
     val egressColo: String? = null

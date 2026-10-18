@@ -27,8 +27,8 @@ data class SpeedEgress(val ip: String, val region: String? = null, val colo: Str
 /** The qualitative band shown beside a figure. */
 enum class SpeedGrade { EXCELLENT, GOOD, FAIR, POOR }
 
-/** Which node pair a run used: Cloudflare's speed endpoints, or the OVH fallback. */
-enum class SpeedProvider { CLOUDFLARE, OVH }
+/** Which node pair a run used: Cloudflare's speed endpoints, OVH's test file, or LibreSpeed. */
+enum class SpeedProvider { CLOUDFLARE, OVH, LIBRESPEED }
 
 /**
  * Everything the speed page renders. A finished run stays here until the next start, so leaving
@@ -49,6 +49,7 @@ data class SpeedTestState(
     val liveMbps: Double? = null,
     val provider: SpeedProvider = SpeedProvider.CLOUDFLARE,
     val uploadUnavailable: Boolean = false,
+    val uploadFallback: Boolean = false,
     val egress: SpeedEgress? = null,
     val reputation: IpReputation? = null,
     val error: String? = null
@@ -61,6 +62,9 @@ data class SpeedTestState(
 interface SpeedTester {
     /** Set once the latency probe has picked a working node pair. */
     val provider: SpeedProvider
+
+    /** True when the last upload phase had to fall back to the LibreSpeed backup. */
+    val uploadFallback: Boolean get() = false
 
     suspend fun latencySamples(count: Int = LATENCY_SAMPLES): List<Long>
 
@@ -77,6 +81,12 @@ interface SpeedTester {
         durationMs: Long,
         onSample: (SpeedSample) -> Unit
     ): TransferStats?
+
+    /** Retries the upload against the backup endpoint; null when this provider has none. */
+    suspend fun uploadBackup(
+        durationMs: Long,
+        onSample: (SpeedSample) -> Unit
+    ): TransferStats? = null
 
     suspend fun egress(): SpeedEgress?
 }

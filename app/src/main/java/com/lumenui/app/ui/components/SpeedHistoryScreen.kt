@@ -267,6 +267,7 @@ private fun HistoryCard(entry: SpeedHistoryEntry, onDelete: () -> Unit) {
     val provider = runCatching { SpeedProvider.valueOf(entry.provider) }
         .getOrDefault(SpeedProvider.CLOUDFLARE)
     val providerText = providerLabel(provider) +
+        (if (entry.uploadFallback) " · 上传经 LibreSpeed" else "") +
         (if (entry.uploadUnavailable) " · 上传未测" else "")
     val onSurface = MaterialTheme.colorScheme.onSurface
 
@@ -389,4 +390,5 @@ private fun formatTimestamp(timestamp: Long): String =
 private fun providerLabel(provider: SpeedProvider): String = when (provider) {
     SpeedProvider.CLOUDFLARE -> "Cloudflare"
     SpeedProvider.OVH -> "OVH 备用节点"
+    SpeedProvider.LIBRESPEED -> "LibreSpeed 备用节点"
 }

@@ -67,6 +67,25 @@ class SpeedTestRunnerTest {
     }
 
     @Test
+    fun uploadFallsBackToLibreSpeedWhenThePrimaryReturnsNothing() = runTest {
+        val tester = FakeTester().apply {
+            uploadResult = null
+            backupResult = TransferStats(5_000_000, 1000)
+        }
+        val finished = mutableListOf<SpeedHistoryEntry>()
+        val runner = SpeedTestRunner(tester, FakeReputation(), backgroundScope) { finished += it }
+
+        runner.start()
+        testScheduler.runCurrent()
+
+        val state = runner.state.value
+        assertEquals(40.0, state.uploadMbps!!, 0.001)
+        assertTrue(state.uploadFallback)
+        assertEquals(1, state.uploadSamples.size)
+        assertTrue(finished.first().uploadFallback)
+    }
+
+    @Test
     fun pings_duringTheRunAreAveragedIntoTheResult() = runTest {
         val tester = FakeTester().apply { downloadDelayMs = 2_500 }
         val runner = SpeedTestRunner(tester, FakeReputation(), backgroundScope)
@@ -123,12 +142,25 @@ class SpeedTestRunnerTest {
             return TransferStats(10_000_000, 1000)
         }
 
+        override var uploadFallback = false
+        var backupResult: TransferStats? = null
+
         override suspend fun upload(
             durationMs: Long,
             onSample: (SpeedSample) -> Unit
         ): TransferStats? {
             val result = uploadResult ?: return null
             onSample(SpeedSample(250, 40.0))
+            return result
+        }
+
+        override suspend fun uploadBackup(
+            durationMs: Long,
+            onSample: (SpeedSample) -> Unit
+        ): TransferStats? {
+            val result = backupResult ?: return null
+            uploadFallback = true
+            onSample(SpeedSample(250, result.mbps))
             return result
         }
 

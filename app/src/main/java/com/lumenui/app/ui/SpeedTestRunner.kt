@@ -80,7 +80,7 @@ class SpeedTestRunner(
                 }
 
                 val download: TransferStats
-                val upload: TransferStats?
+                var upload: TransferStats?
                 try {
                     val downloadLive = LiveRate()
                     download = tester.download(SPEED_PHASE_MS) { sample ->
@@ -111,6 +111,20 @@ class SpeedTestRunner(
                             )
                         }
                     }
+                    if (upload == null) {
+                        // The failed attempt left a flat series; start the backup clean.
+                        _state.update { it.copy(uploadSamples = emptyList(), liveMbps = null) }
+                        val backupLive = LiveRate()
+                        upload = tester.uploadBackup(SPEED_PHASE_MS) { sample ->
+                            val live = backupLive.accept(sample)
+                            _state.update { state ->
+                                state.copy(
+                                    liveMbps = live ?: state.liveMbps,
+                                    uploadSamples = (state.uploadSamples + sample).takeLast(MAX_SAMPLES)
+                                )
+                            }
+                        }
+                    }
                 } finally {
                     pinger.cancel()
                     pinger.join()
@@ -127,6 +141,7 @@ class SpeedTestRunner(
                     uploadBytes = upload?.bytes ?: 0,
                     uploadMs = upload?.elapsedMs ?: 0,
                     uploadUnavailable = upload == null,
+                    uploadFallback = tester.uploadFallback,
                     liveMbps = null,
                     phase = SpeedPhase.DONE,
                     provider = tester.provider,
@@ -144,6 +159,7 @@ class SpeedTestRunner(
                             jitterMs = finished.jitterMs,
                             provider = finished.provider.name,
                             uploadUnavailable = finished.uploadUnavailable,
+                            uploadFallback = finished.uploadFallback,
                             egressIp = finished.egress?.ip,
                             egressRegion = finished.egress?.region,
                             egressColo = finished.egress?.colo

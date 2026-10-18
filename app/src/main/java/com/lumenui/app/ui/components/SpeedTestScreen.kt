@@ -325,7 +325,8 @@ private fun DoneContent(state: SpeedTestState, onRetest: () -> Unit) {
         downloadMbps = state.downloadMbps,
         uploadMbps = state.uploadMbps,
         provider = state.provider,
-        uploadUnavailable = state.uploadUnavailable
+        uploadUnavailable = state.uploadUnavailable,
+        uploadFallback = state.uploadFallback
     )
     Spacer(Modifier.height(12.dp))
     TrafficCard(
@@ -532,9 +533,11 @@ private fun EstimatesCard(
     downloadMbps: Double?,
     uploadMbps: Double?,
     provider: SpeedProvider,
-    uploadUnavailable: Boolean
+    uploadUnavailable: Boolean,
+    uploadFallback: Boolean
 ) {
     val availability = if (uploadUnavailable) " · 上传节点不可达，本次仅测下载与延迟" else ""
+    val fallback = if (uploadFallback) " · 上传经 LibreSpeed 备用节点" else ""
     GlassCard(Modifier.fillMaxWidth()) {
         Text("传输时间估算", color = MutedColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         EstimateRow("下载 1 GB 文件", transferTime(1000, downloadMbps))
@@ -549,7 +552,7 @@ private fun EstimatesCard(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = "测速节点：${provider.labelText()}$availability",
+            text = "测速节点：${provider.labelText()}$availability$fallback",
             color = MutedColor,
             fontSize = 10.5.sp,
             lineHeight = 15.sp
@@ -963,4 +966,5 @@ private fun SpeedGrade.ratingColor(): Color = when (this) {
 private fun SpeedProvider.labelText(): String = when (this) {
     SpeedProvider.CLOUDFLARE -> "Cloudflare"
     SpeedProvider.OVH -> "OVH 备用节点"
+    SpeedProvider.LIBRESPEED -> "LibreSpeed 备用节点"
 }

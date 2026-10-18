@@ -24,6 +24,10 @@ import kotlin.math.max
 
 private const val BASE_URL = "https://speed.cloudflare.com"
 private const val OVH_DOWNLOAD_URL = "https://proof.ovh.net/files/10Mb.dat"
+
+/** Last-resort backend: LibreSpeed's public Los Angeles server, the one that answered in tests. */
+private const val LIBRESPEED_BASE_URL = "https://la.speedtest.clouvider.net/backend"
+private const val LIBRESPEED_DOWNLOAD_MB = 25
 private const val STREAMS = 4
 private const val STREAM_BYTES = 25_000_000
 private const val READ_CHUNK_BYTES = 64 * 1024
@@ -45,18 +49,26 @@ class HttpSpeedTester(base: OkHttpClient) : SpeedTester {
 
     private var activeProvider = SpeedProvider.CLOUDFLARE
     override val provider: SpeedProvider get() = activeProvider
+    override var uploadFallback = false
+        private set
 
     /**
      * Cloudflare's speed host is the default, but some proxy listeners cannot complete TLS to it
      * (the phone's 7893 listener, as of 2026-10-17). When all five attempts fail, fall back to
-     * OVH's public test file, which that listener does reach; the download then uses the same
-     * host, and the upload is reported unavailable rather than failing the whole run.
+     * OVH's public test file, which that listener does reach; its upload is unavailable. If OVH
+     * also fails, try LibreSpeed's public backend, which carries both directions and the egress
+     * lookup. One provider serves the whole run, so the result's label stays truthful.
      */
     override suspend fun latencySamples(count: Int): List<Long> = withContext(Dispatchers.IO) {
         val cloudflare = measureLatency("$BASE_URL/__down?bytes=0", count, asHead = false)
         if (cloudflare.isNotEmpty()) {
             activeProvider = SpeedProvider.CLOUDFLARE
             return@withContext cloudflare
+        }
+        val libreSpeed = measureLatency("$LIBRESPEED_BASE_URL/empty.php?r=$count", count, asHead = false)
+        if (libreSpeed.isNotEmpty()) {
+            activeProvider = SpeedProvider.LIBRESPEED
+            return@withContext libreSpeed
         }
         activeProvider = SpeedProvider.OVH
         measureLatency(OVH_DOWNLOAD_URL, count, asHead = true)
@@ -76,6 +88,8 @@ class HttpSpeedTester(base: OkHttpClient) : SpeedTester {
         when (activeProvider) {
             SpeedProvider.CLOUDFLARE -> pingUrl("$BASE_URL/__down?bytes=0", asHead = false)
             SpeedProvider.OVH -> pingUrl(OVH_DOWNLOAD_URL, asHead = true)
+            SpeedProvider.LIBRESPEED ->
+                pingUrl("$LIBRESPEED_BASE_URL/empty.php?r=${System.nanoTime()}", asHead = false)
         }
     }
 
@@ -87,10 +101,11 @@ class HttpSpeedTester(base: OkHttpClient) : SpeedTester {
         val total = AtomicLong()
         val stop = AtomicBoolean(false)
         val calls = ConcurrentLinkedQueue<Call>()
-        val streamUrl = if (activeProvider == SpeedProvider.OVH) {
-            OVH_DOWNLOAD_URL
-        } else {
-            "$BASE_URL/__down?bytes=$STREAM_BYTES"
+        val streamUrl = when (activeProvider) {
+            SpeedProvider.OVH -> OVH_DOWNLOAD_URL
+            SpeedProvider.LIBRESPEED ->
+                "$LIBRESPEED_BASE_URL/garbage.php?ckSize=$LIBRESPEED_DOWNLOAD_MB"
+            SpeedProvider.CLOUDFLARE -> "$BASE_URL/__down?bytes=$STREAM_BYTES"
         }
         coroutineScope {
             val ticker = ticker(started, durationMs, total, stop, calls, onSample)
@@ -136,9 +151,37 @@ class HttpSpeedTester(base: OkHttpClient) : SpeedTester {
         durationMs: Long,
         onSample: (SpeedSample) -> Unit
     ): TransferStats? = withContext(Dispatchers.IO) {
+        uploadFallback = false
         // The OVH fallback has no upload receiver; reporting it unavailable is honest, while a
         // fabricated or HTTPBin-limited number would not be.
         if (activeProvider == SpeedProvider.OVH) return@withContext null
+        runUpload(activeProvider, durationMs, onSample)
+    }
+
+    /**
+     * Retries the upload against LibreSpeed when Cloudflare's upload endpoint is blocked but its
+     * download worked. The caller clears the failed attempt's samples before this runs.
+     */
+    override suspend fun uploadBackup(
+        durationMs: Long,
+        onSample: (SpeedSample) -> Unit
+    ): TransferStats? = withContext(Dispatchers.IO) {
+        if (activeProvider != SpeedProvider.CLOUDFLARE) return@withContext null
+        val backup = runUpload(SpeedProvider.LIBRESPEED, durationMs, onSample)
+        uploadFallback = backup != null
+        backup
+    }
+
+    private suspend fun runUpload(
+        provider: SpeedProvider,
+        durationMs: Long,
+        onSample: (SpeedSample) -> Unit
+    ): TransferStats? {
+        val uploadUrl = if (provider == SpeedProvider.LIBRESPEED) {
+            "$LIBRESPEED_BASE_URL/empty.php"
+        } else {
+            "$BASE_URL/__up"
+        }
         val started = System.currentTimeMillis()
         val total = AtomicLong()
         val stop = AtomicBoolean(false)
@@ -152,7 +195,7 @@ class HttpSpeedTester(base: OkHttpClient) : SpeedTester {
                     while (!stop.get() && System.currentTimeMillis() - started < durationMs) {
                         val call = client.newCall(
                             Request.Builder()
-                                .url("$BASE_URL/__up")
+                                .url(uploadUrl)
                                 .post(body)
                                 .header("User-Agent", PROBE_USER_AGENT)
                                 .build()
@@ -175,7 +218,7 @@ class HttpSpeedTester(base: OkHttpClient) : SpeedTester {
             calls.forEach { it.cancel() }
             ticker.cancel()
         }
-        if (total.get() == 0L) {
+        return if (total.get() == 0L) {
             null
         } else {
             TransferStats(total.get(), max(1L, System.currentTimeMillis() - started))
@@ -183,11 +226,26 @@ class HttpSpeedTester(base: OkHttpClient) : SpeedTester {
     }
 
     override suspend fun egress(): SpeedEgress? = withContext(Dispatchers.IO) {
+        if (activeProvider == SpeedProvider.LIBRESPEED) {
+            return@withContext fetchLibreSpeedEgress()
+        }
         // The speed host's trace can be unreachable on the same listener that blocks its speed
         // endpoints; www.cloudflare.com reports the same egress and is reachable there.
         fetchEgress("$BASE_URL/cdn-cgi/trace")
             ?: fetchEgress("https://www.cloudflare.com/cdn-cgi/trace")
     }
+
+    private fun fetchLibreSpeedEgress(): SpeedEgress? = runCatching {
+        client.newCall(request("$LIBRESPEED_BASE_URL/getIP.php")).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            val ip = Regex("\"processedString\"\\s*:\\s*\"([^\"]+)\"")
+                .find(response.body.string())
+                ?.groupValues
+                ?.getOrNull(1)
+                ?: return@use null
+            SpeedEgress(ip)
+        }
+    }.getOrNull()
 
     private fun fetchEgress(url: String): SpeedEgress? = runCatching {
         client.newCall(request(url)).execute().use { response ->
