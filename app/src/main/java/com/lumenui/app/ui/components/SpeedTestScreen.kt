@@ -375,6 +375,8 @@ private fun FailedContent(error: String?, onRetry: () -> Unit) {
 
 @Composable
 private fun MetricGrid(state: SpeedTestState) {
+    val latency = latencyGrade(state.latencyMs)
+    val jitter = jitterGrade(state.jitterMs)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             MetricCard(
@@ -399,16 +401,16 @@ private fun MetricGrid(state: SpeedTestState) {
                 label = "延迟",
                 value = state.latencyMs?.toString() ?: "—",
                 unit = "ms",
-                grade = latencyGrade(state.latencyMs),
-                valueColor = delayColor(state.latencyMs),
+                grade = latency,
+                valueColor = latency?.ratingColor() ?: MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
             MetricCard(
                 label = "抖动",
                 value = formatJitter(state.jitterMs),
                 unit = "ms",
-                grade = jitterGrade(state.jitterMs),
-                valueColor = MaterialTheme.colorScheme.onSurface,
+                grade = jitter,
+                valueColor = jitter?.ratingColor() ?: MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -677,6 +679,8 @@ private fun SummaryStrip(state: SpeedTestState) {
     val shape = RoundedCornerShape(14.dp)
     val downloading = state.phase == SpeedPhase.DOWNLOAD
     val uploading = state.phase == SpeedPhase.UPLOAD
+    val latency = latencyGrade(state.latencyMs)
+    val jitter = jitterGrade(state.jitterMs)
     Row(
         Modifier
             .fillMaxWidth()
@@ -691,7 +695,15 @@ private fun SummaryStrip(state: SpeedTestState) {
             state.latencyMs?.toString() ?: "—",
             "ms",
             Modifier.weight(1f),
-            valueColor = delayColor(state.latencyMs)
+            valueColor = latency?.ratingColor() ?: MaterialTheme.colorScheme.onSurface
+        )
+        StripDivider()
+        SummaryCell(
+            "抖动",
+            formatJitter(state.jitterMs),
+            "ms",
+            Modifier.weight(1f),
+            valueColor = jitter?.ratingColor() ?: MaterialTheme.colorScheme.onSurface
         )
         StripDivider()
         SummaryCell(
@@ -700,7 +712,7 @@ private fun SummaryStrip(state: SpeedTestState) {
                 ?: if (downloading) formatMbps(state.liveMbps) else "—",
             "Mbps",
             Modifier.weight(1f),
-            valueColor = MaterialTheme.colorScheme.onSurface
+            valueColor = DownloadColor
         )
         StripDivider()
         SummaryCell(
@@ -709,7 +721,7 @@ private fun SummaryStrip(state: SpeedTestState) {
                 ?: if (uploading) formatMbps(state.liveMbps) else "—",
             "Mbps",
             Modifier.weight(1f),
-            valueColor = MaterialTheme.colorScheme.onSurface
+            valueColor = UploadColor
         )
     }
 }
