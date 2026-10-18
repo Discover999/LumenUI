@@ -150,7 +150,13 @@ fun DnsLeakScreen(
                     .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
                 VerdictHero(
-                    verdict = verdictOf(running, started, failed, result),
+                    verdict = verdictOf(
+                        running = running,
+                        started = started,
+                        failed = failed,
+                        result = result,
+                        muted = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
                     stats = statsOf(result),
                     started = started,
                     running = running,
@@ -166,7 +172,7 @@ fun DnsLeakScreen(
                 Text(
                     text = "检测由 bash.ws 提供：解析随机子域名，再比对实际应答的 DNS 解析器与出口线路。" +
                         "仅在设备流量确实走隧道时才有意义。",
-                    color = MutedColor,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                     lineHeight = 15.sp
                 )
@@ -176,11 +182,30 @@ fun DnsLeakScreen(
     }
 }
 
-private data class Verdict(val icon: ImageVector, val color: Color, val title: String, val detail: String)
+private data class Verdict(
+    val icon: ImageVector,
+    val color: Color,
+    val title: String,
+    val detail: String,
+    /** Card tint; the idle states keep their neutral wash while their text stays readable. */
+    val tint: Color = color
+)
 
-private fun verdictOf(running: Boolean, started: Boolean, failed: Boolean, result: DnsLeakResult?): Verdict = when {
-    !started -> Verdict(Lucide.Play, MutedColor, "尚未开始检测", "点击下方开始检测，解析随机子域名并核对应答的 DNS 服务器")
-    running -> Verdict(Lucide.RefreshCw, MutedColor, "正在检测…", "解析随机子域名，读取实际应答的 DNS 服务器")
+private fun verdictOf(
+    running: Boolean,
+    started: Boolean,
+    failed: Boolean,
+    result: DnsLeakResult?,
+    muted: Color
+): Verdict = when {
+    !started -> Verdict(
+        Lucide.Play, muted, "尚未开始检测", "点击下方开始检测，解析随机子域名并核对应答的 DNS 服务器",
+        tint = MutedColor
+    )
+    running -> Verdict(
+        Lucide.RefreshCw, muted, "正在检测…", "解析随机子域名，读取实际应答的 DNS 服务器",
+        tint = MutedColor
+    )
     failed || result == null -> Verdict(Lucide.CircleAlert, WarnColor, "检测失败", "无法连接检测服务，请稍后重试")
     result.leaking == true -> Verdict(Lucide.CircleX, BadColor, "可能存在 DNS 泄露", "部分查询未走隧道，被本地网络解析")
     result.leaking == false -> Verdict(Lucide.CircleCheck, OkColor, "未检测到泄露", "应答的解析器与出口线路一致")
@@ -219,10 +244,10 @@ private fun VerdictHero(
             // A tint of the verdict colour behind the card, so the state reads before any text.
             .background(
                 Brush.verticalGradient(
-                    listOf(verdict.color.copy(alpha = 0.13f), Color.Transparent)
+                    listOf(verdict.tint.copy(alpha = 0.13f), Color.Transparent)
                 )
             )
-            .border(1.dp, verdict.color.copy(alpha = 0.30f), shape)
+            .border(1.dp, verdict.tint.copy(alpha = 0.30f), shape)
             .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -230,8 +255,8 @@ private fun VerdictHero(
                 Modifier
                     .size(62.dp)
                     .clip(CircleShape)
-                    .background(verdict.color.copy(alpha = 0.14f))
-                    .border(1.dp, verdict.color.copy(alpha = 0.36f), CircleShape),
+                    .background(verdict.tint.copy(alpha = 0.14f))
+                    .border(1.dp, verdict.tint.copy(alpha = 0.36f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 if (running) {
@@ -262,7 +287,7 @@ private fun VerdictHero(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = verdict.detail,
-                    color = MutedColor,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.5.sp,
                     lineHeight = 17.sp
                 )
@@ -294,7 +319,7 @@ private fun VerdictHero(
                             fontWeight = FontWeight.SemiBold
                         )
                         Spacer(Modifier.height(2.dp))
-                        Text(label, color = MutedColor, fontSize = 11.sp)
+                        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                     }
                 }
             }
@@ -355,7 +380,7 @@ private fun ResolversCard(resolvers: List<DnsLeakNode>, running: Boolean, starte
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "DNS 服务器",
-                color = MutedColor,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f)
@@ -373,9 +398,9 @@ private fun ResolversCard(resolvers: List<DnsLeakNode>, running: Boolean, starte
                     NodeLine(node)
                 }
             }
-            running -> Text("检测中…", color = MutedColor, fontSize = 13.sp)
-            !started -> Text("尚未检测", color = MutedColor, fontSize = 13.sp)
-            else -> Text("未检测到解析器", color = MutedColor, fontSize = 13.sp)
+            running -> Text("检测中…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            !started -> Text("尚未检测", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            else -> Text("未检测到解析器", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
         }
     }
 }
@@ -387,7 +412,12 @@ private fun GroupHeader(group: ResolverGroup) {
         if (flag != null) {
             FlagBadge(flag)
         } else {
-            Icon(Lucide.Globe, contentDescription = null, modifier = Modifier.size(14.dp), tint = MutedColor)
+            Icon(
+                Lucide.Globe,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
         Spacer(Modifier.width(8.dp))
         Text(
@@ -399,7 +429,7 @@ private fun GroupHeader(group: ResolverGroup) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
-        Text("${group.nodes.size}", color = MutedColor, fontSize = 11.sp)
+        Text("${group.nodes.size}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
     }
 }
 
@@ -428,7 +458,7 @@ private fun Chip(text: String) {
     val shape = RoundedCornerShape(6.dp)
     Text(
         text = text,
-        color = MutedColor,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         fontSize = 10.5.sp,
         maxLines = 1,
         modifier = Modifier
@@ -452,7 +482,7 @@ private fun ConclusionCard(conclusion: String) {
             .border(1.dp, glass.cardBorder, shape)
             .padding(16.dp)
     ) {
-        Text("bash.ws 原始结论", color = MutedColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text("bash.ws 原始结论", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
         Text(
             text = conclusion,
