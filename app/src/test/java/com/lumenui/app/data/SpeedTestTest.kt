@@ -34,6 +34,13 @@ class SpeedTestTest {
     }
 
     @Test
+    fun formatMBps_dividesByEight() {
+        assertEquals("10.0", formatMBps(80.0))
+        assertEquals("0.1", formatMBps(0.9))
+        assertEquals("—", formatMBps(null))
+    }
+
+    @Test
     fun formatBytes_usesDecimalUnits() {
         assertEquals("0 B", formatBytes(0))
         assertEquals("1.5 KB", formatBytes(1_500))

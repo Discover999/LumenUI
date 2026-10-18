@@ -30,7 +30,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,6 +52,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.ArrowLeft
+import com.composables.icons.lucide.ArrowLeftRight
 import com.composables.icons.lucide.CircleX
 import com.composables.icons.lucide.Globe
 import com.composables.icons.lucide.History
@@ -62,6 +66,7 @@ import com.lumenui.app.data.SpeedSample
 import com.lumenui.app.data.SpeedTestState
 import com.lumenui.app.data.formatBytes
 import com.lumenui.app.data.formatJitter
+import com.lumenui.app.data.formatMBps
 import com.lumenui.app.data.formatMbps
 import com.lumenui.app.data.jitterGrade
 import com.lumenui.app.data.latencyGrade
@@ -293,13 +298,17 @@ private fun RunningContent(state: SpeedTestState, onCancel: () -> Unit) {
 
 @Composable
 private fun DoneContent(state: SpeedTestState, onRetest: () -> Unit) {
+    // One unit choice for both trend cards, so download and upload never disagree.
+    var showMBps by remember { mutableStateOf(false) }
     MetricGrid(state)
     Spacer(Modifier.height(12.dp))
     TrendCard(
         title = "下载速度走势",
         mbps = state.downloadMbps,
         samples = state.downloadSamples,
-        color = DownloadColor
+        color = DownloadColor,
+        showMBps = showMBps,
+        onToggleUnit = { showMBps = !showMBps }
     )
     Spacer(Modifier.height(12.dp))
     TrendCard(
@@ -307,6 +316,8 @@ private fun DoneContent(state: SpeedTestState, onRetest: () -> Unit) {
         mbps = state.uploadMbps,
         samples = state.uploadSamples,
         color = UploadColor,
+        showMBps = showMBps,
+        onToggleUnit = { showMBps = !showMBps },
         note = if (state.uploadUnavailable) "当前代理下上传节点不可达" else null
     )
     Spacer(Modifier.height(12.dp))
@@ -450,25 +461,32 @@ private fun TrendCard(
     mbps: Double?,
     samples: List<SpeedSample>,
     color: Color,
+    showMBps: Boolean,
+    onToggleUnit: () -> Unit,
     note: String? = null
 ) {
     GlassCard(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Box(Modifier.size(6.dp).clip(CircleShape).background(color))
             Spacer(Modifier.width(6.dp))
             Text(title, color = MutedColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.weight(1f))
+            UnitToggle(showMBps, onToggleUnit)
         }
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
-                text = formatMbps(mbps),
+                text = if (showMBps) formatMBps(mbps) else formatMbps(mbps),
                 color = color,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(Modifier.width(5.dp))
             Text(
-                text = "Mbps",
+                text = if (showMBps) "MB/s" else "Mbps",
                 color = MutedColor,
                 fontSize = 11.sp,
                 modifier = Modifier.padding(bottom = 4.dp)
@@ -481,6 +499,29 @@ private fun TrendCard(
             Spacer(Modifier.height(6.dp))
             Text(it, color = MutedColor, fontSize = 10.5.sp, lineHeight = 15.sp)
         }
+    }
+}
+
+/** Swaps both trend figures between Mbps and the MB/s conversion. */
+@Composable
+private fun UnitToggle(showMBps: Boolean, onToggle: () -> Unit) {
+    val glass = LocalGlassColors.current
+    val shape = RoundedCornerShape(percent = 50)
+    Box(
+        Modifier
+            .clip(shape)
+            .background(glass.chipBg)
+            .border(1.dp, glass.buttonBorder, shape)
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 7.dp, vertical = 5.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Lucide.ArrowLeftRight,
+            contentDescription = if (showMBps) "切换到 Mbps" else "切换到 MB/s",
+            modifier = Modifier.size(13.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -753,7 +794,7 @@ private fun SpeedChart(samples: List<SpeedSample>, color: Color, modifier: Modif
             val y = size.height * line / 4f
             drawLine(grid, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
         }
-        val points = resample(samples)
+        val points = resample(smooth(samples))
         if (points.size < 2) return@Canvas
         val maxMbps = maxOf(10.0, points.maxOf { it.mbps })
         val maxElapsed = maxOf(1L, points.maxOf { it.elapsedMs })
@@ -796,6 +837,26 @@ private fun formatAxis(ms: Long): String =
     } else {
         String.format(Locale.US, "%.1fs", ms / 1000.0)
     }
+
+/**
+ * Rolling 1 s mean, so the drawn line moves at the same pace as the live figure instead of
+ * showing every 250 ms burst. The axis still uses each sample's own elapsed time.
+ */
+internal fun smooth(samples: List<SpeedSample>, windowMs: Long = 1_000L): List<SpeedSample> {
+    if (samples.size < 2) return samples
+    return samples.map { sample ->
+        val from = sample.elapsedMs - windowMs
+        var total = 0.0
+        var count = 0
+        for (other in samples) {
+            if (other.elapsedMs > from && other.elapsedMs <= sample.elapsedMs) {
+                total += other.mbps
+                count++
+            }
+        }
+        SpeedSample(sample.elapsedMs, if (count == 0) sample.mbps else total / count)
+    }
+}
 
 /** Both charts draw the same number of points whatever the raw sample density was. */
 private fun resample(samples: List<SpeedSample>, count: Int = CHART_POINTS): List<SpeedSample> {

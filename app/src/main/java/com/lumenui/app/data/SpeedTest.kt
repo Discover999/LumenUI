@@ -129,6 +129,10 @@ fun jitterGrade(ms: Double?): SpeedGrade? = when {
 fun formatMbps(mbps: Double?): String =
     mbps?.let { String.format(Locale.US, "%.1f", it) } ?: "—"
 
+/** Decimal megabytes per second: 1 MB/s = 8 Mbps, the same decimal units the page uses. */
+fun formatMBps(mbps: Double?): String =
+    mbps?.let { String.format(Locale.US, "%.1f", it / 8.0) } ?: "—"
+
 fun formatJitter(ms: Double?): String =
     ms?.let { String.format(Locale.US, "%.1f", it) } ?: "—"
 

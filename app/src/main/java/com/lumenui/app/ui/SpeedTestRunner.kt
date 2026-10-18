@@ -5,6 +5,7 @@ import com.lumenui.app.data.LATENCY_PING_INTERVAL_MS
 import com.lumenui.app.data.SPEED_PHASE_MS
 import com.lumenui.app.data.SpeedHistoryEntry
 import com.lumenui.app.data.SpeedPhase
+import com.lumenui.app.data.SpeedSample
 import com.lumenui.app.data.SpeedTestState
 import com.lumenui.app.data.SpeedTester
 import com.lumenui.app.data.TransferStats
@@ -81,10 +82,12 @@ class SpeedTestRunner(
                 val download: TransferStats
                 val upload: TransferStats?
                 try {
+                    val downloadLive = LiveRate()
                     download = tester.download(SPEED_PHASE_MS) { sample ->
+                        val live = downloadLive.accept(sample)
                         _state.update { state ->
                             state.copy(
-                                liveMbps = sample.mbps,
+                                liveMbps = live ?: state.liveMbps,
                                 downloadSamples = (state.downloadSamples + sample).takeLast(MAX_SAMPLES)
                             )
                         }
@@ -98,10 +101,12 @@ class SpeedTestRunner(
                             phase = SpeedPhase.UPLOAD
                         )
                     }
+                    val uploadLive = LiveRate()
                     upload = tester.upload(SPEED_PHASE_MS) { sample ->
+                        val live = uploadLive.accept(sample)
                         _state.update { state ->
                             state.copy(
-                                liveMbps = sample.mbps,
+                                liveMbps = live ?: state.liveMbps,
                                 uploadSamples = (state.uploadSamples + sample).takeLast(MAX_SAMPLES)
                             )
                         }
@@ -175,3 +180,27 @@ class SpeedTestRunner(
         if (_state.value.phase.running) reset()
     }
 }
+
+/**
+ * Turns the 250 ms samples into one live readout per second: each readout averages the samples
+ * of the trailing second, so the big number moves on a steady 1 s cadence while the chart still
+ * receives every raw sample.
+ */
+internal class LiveRate {
+    private val window = ArrayDeque<SpeedSample>()
+    private var lastSecond = 0L
+
+    /** The rate to show when [sample] crosses a whole second, or null between readouts. */
+    fun accept(sample: SpeedSample): Double? {
+        window.addLast(sample)
+        while (window.size > 1 && window.first().elapsedMs <= sample.elapsedMs - LIVE_WINDOW_MS) {
+            window.removeFirst()
+        }
+        val second = sample.elapsedMs / 1000
+        if (second == lastSecond) return null
+        lastSecond = second
+        return window.sumOf { it.mbps } / window.size
+    }
+}
+
+private const val LIVE_WINDOW_MS = 1_000L
